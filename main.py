@@ -76,38 +76,57 @@ def main(page: ft.Page):
     actualizar_lista_visual()
 
     # --- CONTENEDORES DE VISTA ---
+    # Los envolvemos en un Container con color de fondo para distinguirlos
     container_gastos = ft.Column([
-        ft.Text("Registro de Gastos", size=20, weight="bold"),
-        input_nombre, input_monto, 
-        ft.Button("Añadir Gasto", on_click=agregar_gasto, icon="add"),
+        ft.Text("Registro de Gastos", size=24, weight="bold", color="blue"),
+        input_nombre, 
+        input_monto, 
+        ft.ElevatedButton("Añadir Gasto", on_click=agregar_gasto, icon="add", bgcolor="blue", color="white"),
         ft.Divider(),
+        ft.Text("Historial:", size=16, weight="bold"),
         lista_visual
     ], visible=True, expand=True)
 
     container_ia = ft.Column([
-        ft.Text("Money-Guru AI", size=20, weight="bold"),
+        ft.Text("Money-Guru AI 🧙", size=24, weight="bold", color="green"),
         chat_display,
-        ft.Row([input_chat, ft.IconButton("send", on_click=consultar_guru)])
+        ft.Row([
+            input_chat, 
+            ft.IconButton("send", on_click=consultar_guru, icon_color="green")
+        ])
     ], visible=False, expand=True)
 
-    def cambiar_vista(e):
-        idx = e.control.selected_index
-        container_gastos.visible = (idx == 0)
-        container_ia.visible = (idx == 1)
+    # --- NAVEGACIÓN MANUAL (BOTONES SIMPLES) ---
+    def mostrar_gastos(e):
+        container_gastos.visible = True
+        container_ia.visible = False
+        btn_ir_gastos.bgcolor = "blue"
+        btn_ir_ia.bgcolor = None
         page.update()
 
-    nav_bar = ft.NavigationBar(
-        destinations=[
-            ft.NavigationBarDestination(icon="payments", label="Gastos"),
-            ft.NavigationBarDestination(icon="psychology", label="IA Guru"),
-        ],
-        on_change=cambiar_vista
-    )
+    def mostrar_ia(e):
+        container_gastos.visible = False
+        container_ia.visible = True
+        btn_ir_gastos.bgcolor = None
+        btn_ir_ia.bgcolor = "green"
+        page.update()
 
-    page.navigation_bar = nav_bar
+    # Botones que actúan como pestañas
+    btn_ir_gastos = ft.ElevatedButton("GASTOS", on_click=mostrar_gastos, bgcolor="blue", color="white")
+    btn_ir_ia = ft.ElevatedButton("IA GURU", on_click=mostrar_ia, color="white")
+
+    menu_superior = ft.Row([
+        btn_ir_gastos,
+        btn_ir_ia
+    ], alignment=ft.MainAxisAlignment.CENTER)
+
+    # Limpiamos y agregamos todo en orden
+    page.clean()
     page.add(
-        ft.Container(content=container_gastos, expand=True),
-        ft.Container(content=container_ia, expand=True)
+        menu_superior,        # Los botones de navegación arriba
+        ft.Divider(),         # Una línea separadora
+        container_gastos,     # Contenido de gastos
+        container_ia          # Contenido de IA (invisible al inicio)
     )
 
 if __name__ == "__main__":

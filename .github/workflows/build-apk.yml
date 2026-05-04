@@ -26,15 +26,15 @@ jobs:
       - name: Build APK
         run: |
           ls -la
-          # Verificar si existe la carpeta src y si contiene main.py
           if [ -d "src" ]; then
             echo "src directory found, entering..."
             cd src
             ls -la
+            flet build apk
           else
-            echo "src directory not found, building from root."
+            echo "src directory not found"
+            flet build apk
           fi
-          flet build apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

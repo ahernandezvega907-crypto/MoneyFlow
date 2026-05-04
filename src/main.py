@@ -22,7 +22,6 @@ def main(page: ft.Page):
     page.window.width = 450
     page.window.height = 800
 
-    # --- FUNCIONES DE LÓGICA ---
     def actualizar_lista_gastos():
         lista_gastos_view.controls.clear()
         try:
@@ -61,7 +60,6 @@ def main(page: ft.Page):
             except Exception as ex:
                 print(f"Error al insertar: {ex}")
 
-    # --- CONTROLES DE INTERFAZ ---
     input_nombre = ft.TextField(label="Concepto", expand=2, border_color=AppColors.PRIMARY, color=AppColors.TEXT)
     input_monto = ft.TextField(label="Monto", expand=1, border_color=AppColors.PRIMARY, color=AppColors.TEXT)
     lista_gastos_view = ft.Column(scroll=ft.ScrollMode.ALWAYS, expand=True, spacing=5)
@@ -72,7 +70,6 @@ def main(page: ft.Page):
         style=ft.ButtonStyle(bgcolor=AppColors.PRIMARY)
     )
 
-    # --- CONSTRUCCIÓN DE LA INTERFAZ ---
     page.add(
         ft.AppBar(
             title=ft.Text("MoneyFlow", color=AppColors.PRIMARY, weight="bold"), 
@@ -106,3 +103,4 @@ def main(page: ft.Page):
 
 if __name__ == "__main__":
     ft.run(main)
+    # v2

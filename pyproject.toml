@@ -1,0 +1,30 @@
+[project]
+name = "moneyflow"
+version = "1.0.0"
+description = "Aplicación de gestión de gastos personales con IA, presupuestos y gráficos"
+authors = [
+    { name = "Armando Hernandez", email = "soporte@moneyflow.com" }
+]
+dependencies = [
+    "flet",
+    "supabase",
+    "python-dotenv",
+    "matplotlib",
+    "openpyxl",
+    "reportlab",
+    "google-genai"
+]
+requires-python = ">=3.9"
+
+[tool.flet]
+org = "com.moneyflow"
+product = "MoneyFlow"
+
+[tool.flet.app]
+path = "src"
+
+[tool.flet.windows]
+icon = "assets/icon.png"
+
+[tool.flet.android]
+icon = "assets/icon.png"

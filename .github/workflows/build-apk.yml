@@ -23,7 +23,10 @@ jobs:
           
       - name: Build APK
         run: |
-          cd src
+          # Si tu main.py está en src/, entra a esa carpeta
+          if [ -d "src" ]; then
+            cd src
+          fi
           flet build apk
           
       - name: Upload APK

@@ -8,26 +8,33 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install flet supabase
-          
+          pip show supabase
+
       - name: Build APK
         run: |
-          cd src
-          flet build apk
-          
+          if [ -d "src" ]; then
+            cd src
+            yes | flet build apk
+          else
+            yes | flet build apk
+          fi
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: MoneyFlow-APK
-          path: build/apk/outputs/flutter-apk/*.apk
+          path: src/build/flutter/build/app/outputs/flutter-apk/*.apk

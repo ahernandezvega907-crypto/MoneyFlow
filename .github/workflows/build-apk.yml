@@ -30,10 +30,10 @@ jobs:
             echo "src directory found, entering..."
             cd src
             ls -la
-            flet build apk
+            yes | flet build apk
           else
             echo "src directory not found"
-            flet build apk
+            yes | flet build apk
           fi
 
       - name: Upload APK

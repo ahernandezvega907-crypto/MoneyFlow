@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - uses: actions/checkout@v4
 
@@ -24,7 +26,14 @@ jobs:
       - name: Build APK
         run: |
           ls -la
-          cd src
+          # Verificar si existe la carpeta src y si contiene main.py
+          if [ -d "src" ]; then
+            echo "src directory found, entering..."
+            cd src
+            ls -la
+          else
+            echo "src directory not found, building from root."
+          fi
           flet build apk
 
       - name: Upload APK

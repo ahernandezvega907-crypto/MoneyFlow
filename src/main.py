@@ -1,18 +1,36 @@
 import flet as ft
-import requests
+import urllib.request
+import urllib.error
+import json
 import warnings
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-# --- CONFIGURACIÓN DE SUPABASE (API REST) ---
+# --- CONFIGURACIÓN DE SUPABASE (API REST con urllib) ---
 SUPABASE_URL = "https://xwvebpdivouldkvfrogh.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh3dmVicGRpdm91bGRrdmZyb2doIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2NTI1NTgsImV4cCI6MjA5MjIyODU1OH0.5eI8mdM3bR7SAPhqp0tcGPY02GUh3xuUQEvtRHNjU5s"
 
-headers = {
-    "apikey": SUPABASE_KEY,
-    "Authorization": f"Bearer {SUPABASE_KEY}",
-    "Content-Type": "application/json"
-}
+def hacer_peticion(url, metodo="GET", datos=None):
+    """Función genérica para hacer peticiones a Supabase usando urllib"""
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    req = urllib.request.Request(url, headers=headers, method=metodo)
+    if datos:
+        req.data = json.dumps(datos).encode("utf-8")
+    
+    try:
+        with urllib.request.urlopen(req) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        print(f"Error HTTP {e.code}: {e.reason}")
+        return None
+    except Exception as e:
+        print(f"Error: {e}")
+        return None
 
 class AppColors:
     PRIMARY = "#00d1ff"
@@ -31,21 +49,28 @@ def main(page: ft.Page):
         lista_gastos_view.controls.clear()
         try:
             url = f"{SUPABASE_URL}/rest/v1/gastos?select=*&user_id=eq.00000000-0000-0000-0000-000000000001&order=created_at.desc"
-            response = requests.get(url, headers=headers)
-            response.raise_for_status()
-            gastos = response.json()
-            for item in gastos:
+            gastos = hacer_peticion(url)
+            if gastos:
+                for item in gastos:
+                    lista_gastos_view.controls.append(
+                        ft.Container(
+                            content=ft.Row([
+                                ft.Text("💰", size=20),
+                                ft.Text(item.get('nombre', 'Sin concepto'), expand=True, color=AppColors.TEXT),
+                                ft.Text(f"${item.get('monto', 0):.2f}", color=AppColors.PRIMARY),
+                            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                            padding=10,
+                            bgcolor=AppColors.CARD,
+                            border_radius=8,
+                            margin=5,
+                        )
+                    )
+            else:
                 lista_gastos_view.controls.append(
                     ft.Container(
-                        content=ft.Row([
-                            ft.Text("💰", size=20),
-                            ft.Text(item.get('nombre', 'Sin concepto'), expand=True, color=AppColors.TEXT),
-                            ft.Text(f"${item.get('monto', 0):.2f}", color=AppColors.PRIMARY),
-                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                        padding=10,
-                        bgcolor=AppColors.CARD,
-                        border_radius=8,
-                        margin=5,
+                        content=ft.Text("No hay gastos registrados", color=AppColors.TEXT, italic=True),
+                        alignment=ft.alignment.center,
+                        padding=20
                     )
                 )
         except Exception as e:
@@ -61,8 +86,7 @@ def main(page: ft.Page):
                     "user_id": "00000000-0000-0000-0000-000000000001"
                 }
                 url = f"{SUPABASE_URL}/rest/v1/gastos"
-                response = requests.post(url, headers=headers, json=data)
-                response.raise_for_status()
+                hacer_peticion(url, "POST", data)
                 input_nombre.value = ""
                 input_monto.value = ""
                 actualizar_lista_gastos()

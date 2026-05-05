@@ -16,3 +16,7 @@ path = "src"
 [tool.flet.android]
 app_name = "MoneyFlow"
 package_name = "com.moneyflow.app"
+icon = "assets/icon.png"
+
+[tool.flet.windows]
+icon = "assets/icon.png"

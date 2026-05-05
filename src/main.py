@@ -1,13 +1,18 @@
 import flet as ft
-from supabase import create_client, Client
+import requests
 import warnings
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-# --- CONFIGURACIÓN DE CONEXIÓN ---
+# --- CONFIGURACIÓN DE SUPABASE (API REST) ---
 SUPABASE_URL = "https://xwvebpdivouldkvfrogh.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh3dmVicGRpdm91bGRrdmZyb2doIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2NTI1NTgsImV4cCI6MjA5MjIyODU1OH0.5eI8mdM3bR7SAPhqp0tcGPY02GUh3xuUQEvtRHNjU5s"
-db: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+headers = {
+    "apikey": SUPABASE_KEY,
+    "Authorization": f"Bearer {SUPABASE_KEY}",
+    "Content-Type": "application/json"
+}
 
 class AppColors:
     PRIMARY = "#00d1ff"
@@ -25,9 +30,11 @@ def main(page: ft.Page):
     def actualizar_lista_gastos():
         lista_gastos_view.controls.clear()
         try:
-            default_user_id = "00000000-0000-0000-0000-000000000001"
-            res = db.table("gastos").select("*").eq("user_id", default_user_id).order("created_at", desc=True).execute()
-            for item in res.data:
+            url = f"{SUPABASE_URL}/rest/v1/gastos?select=*&user_id=eq.00000000-0000-0000-0000-000000000001&order=created_at.desc"
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            gastos = response.json()
+            for item in gastos:
                 lista_gastos_view.controls.append(
                     ft.Container(
                         content=ft.Row([
@@ -48,12 +55,14 @@ def main(page: ft.Page):
     def agregar_gasto_db(e):
         if input_nombre.value and input_monto.value:
             try:
-                default_user_id = "00000000-0000-0000-0000-000000000001"
-                db.table("gastos").insert({
-                    "nombre": input_nombre.value, 
+                data = {
+                    "nombre": input_nombre.value,
                     "monto": float(input_monto.value),
-                    "user_id": default_user_id
-                }).execute()
+                    "user_id": "00000000-0000-0000-0000-000000000001"
+                }
+                url = f"{SUPABASE_URL}/rest/v1/gastos"
+                response = requests.post(url, headers=headers, json=data)
+                response.raise_for_status()
                 input_nombre.value = ""
                 input_monto.value = ""
                 actualizar_lista_gastos()
@@ -103,4 +112,3 @@ def main(page: ft.Page):
 
 if __name__ == "__main__":
     ft.run(main)
-    # v2

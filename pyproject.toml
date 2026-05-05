@@ -4,7 +4,7 @@ version = "1.0.0"
 description = "Aplicación de gestión de gastos personales"
 dependencies = [
     "flet",
-    "supabase"
+    "requests"
 ]
 
 [tool.flet]

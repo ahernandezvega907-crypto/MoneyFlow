@@ -28,6 +28,11 @@ jobs:
           if [ -d "src" ]; then
             cd src
             yes | flet build apk
+            echo "=== BUSCANDO APK ==="
+            find . -name "*.apk"
+            echo "=== LISTANDO build ==="
+            ls -la build/ 2>/dev/null || echo "No existe build/"
+            find build -name "*.apk" 2>/dev/null || echo "No se encontró APK en build"
           else
             yes | flet build apk
           fi
@@ -36,4 +41,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: MoneyFlow-APK
-          path: build/flutter/build/app/outputs/flutter-apk/*.apk
+          path: '**/*.apk'

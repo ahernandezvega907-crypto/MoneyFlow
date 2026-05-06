@@ -25,15 +25,19 @@ jobs:
 
       - name: Build APK
         run: |
-          if [ -d "src" ]; then
-            cd src
-            yes | flet build apk
-          else
-            yes | flet build apk
-          fi
+          cd src
+          yes | flet build apk
+          echo "=== BUSCANDO TODOS LOS APK ==="
+          find /home/runner -name "*.apk" 2>/dev/null
+          echo "=== LISTANDO CONTENIDO DEL DIRECTORIO ACTUAL ==="
+          ls -la
+          echo "=== LISTANDO build ==="
+          ls -la build/ 2>/dev/null || echo "No existe build/"
+          echo "=== RECORRIENDO build ==="
+          find build -type f 2>/dev/null | head -20
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: MoneyFlow-APK
-          path: build/flutter/build/app/outputs/flutter-apk/*.apk
+          path: '**/*.apk'

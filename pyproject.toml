@@ -2,9 +2,13 @@
 name = "moneyflow"
 version = "1.0.0"
 description = "Aplicación de gestión de gastos personales"
+authors = [
+    { name = "Armando Hernandez", email = "soporte@moneyflow.com" }
+]
 dependencies = [
     "flet"
 ]
+requires-python = ">=3.9"
 
 [tool.flet]
 org = "com.moneyflow"

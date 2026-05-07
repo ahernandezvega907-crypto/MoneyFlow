@@ -26,11 +26,10 @@ jobs:
       - name: Build APK
         run: |
           cd src
-          yes | flet build apk --module-name main
+          yes | flet build apk --module-name main --product "MoneyFlow" --org "com.moneyflow"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: MoneyFlow-APK
           path: '**/*.apk'
-          

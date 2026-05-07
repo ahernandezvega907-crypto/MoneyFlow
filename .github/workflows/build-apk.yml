@@ -36,4 +36,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: MoneyFlow-App
-          path: build/apk/*.apk
+          path: build/apk/*.apk 

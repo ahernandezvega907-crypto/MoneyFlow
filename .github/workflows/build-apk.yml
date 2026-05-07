@@ -30,8 +30,8 @@ jobs:
 
       - name: Compilar APK
         run: |
-          # Corregido: sin --main y con -y para que no se detenga
-          flet build apk src/main.py --project "MoneyFlow" -y
+          # Usamos 'yes' para responder automáticamente a la instalación del SDK de Flutter
+          yes | flet build apk src/main.py --project "MoneyFlow"
 
       - name: Subir APK
         uses: actions/upload-artifact@v4

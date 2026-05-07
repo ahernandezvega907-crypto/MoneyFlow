@@ -1,41 +1,40 @@
-name: Build APK
-
+name: Compilar MoneyFlow APK
 on:
   push:
-    branches: [ main ]
-  workflow_dispatch:
+    branches:
+      - principal # Tu rama actual según VS Code
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout del código
+        uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Configurar Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Install dependencies
+      - name: Instalar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Instalar Flet y dependencias
         run: |
           python -m pip install --upgrade pip
-          pip install flet
+          pip install flet[all]
+          if [ -f requisitos.txt ]; then pip install -r requisitos.txt; fi
 
-      - name: Build APK
+      - name: Compilar APK
         run: |
-          cd src
-          yes | flet build apk
-          echo "=== BUSCANDO TODOS LOS APK ==="
-          find . -name "*.apk"
-          echo "=== CONTENIDO DE build/ ==="
-          ls -la build/ 2>/dev/null || echo "No existe build/"
-          echo "=== BUSQUEDA DETALLADA ==="
-          find build -type f -name "*.apk" 2>/dev/null || echo "No se encontró APK"
+          # Usamos src/main.py porque esa es tu ruta real
+          flet build apk --main src/main.py
 
-      - name: Upload APK
+      - name: Subir APK
         uses: actions/upload-artifact@v4
         with:
-          name: MoneyFlow-APK
-          path: '**/*.apk'
+          name: MoneyFlow-App
+          path: build/apk/*.apk

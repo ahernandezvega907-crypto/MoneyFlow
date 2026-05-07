@@ -1,0 +1,14 @@
+[project]
+name = "moneyflow"
+version = "1.0.0"
+description = "Aplicación de gestión de gastos personales"
+dependencies = [
+    "flet"
+]
+
+[tool.flet]
+org = "com.moneyflow"
+product = "MoneyFlow"
+
+[tool.flet.android]
+icon = "assets/icon.png"

@@ -26,12 +26,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install flet[all]
-          # Cambiado a requirements.txt para coincidir con tu carpeta
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
       - name: Compilar APK
         run: |
-          # El comando 'yes' responde "y" automáticamente a la instalación del SDK de Flutter
           yes | flet build apk src/main.py --project "MoneyFlow"
 
       - name: Subir APK

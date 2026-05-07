@@ -38,3 +38,4 @@ jobs:
         with:
           name: MoneyFlow-App
           path: build/apk/*.apk
+          

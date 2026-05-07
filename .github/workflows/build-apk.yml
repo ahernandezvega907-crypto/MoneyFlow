@@ -1,39 +1,39 @@
-name: Build APK
-
+name: APK de Compilador MoneyFlow
 on:
   push:
-    branches: [ main ]
-  workflow_dispatch:
+    branches:
+      - principal
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout del código
+        uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Configurar Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Install dependencies
+      - name: Instalar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Instalar Flet y dependencias
         run: |
           python -m pip install --upgrade pip
-          pip install flet supabase
+          pip install flet[all]
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      - name: Build APK
+      - name: Compilar APK
         run: |
-          if [ -d "src" ]; then
-            cd src
-            yes | flet build apk
-          else
-            yes | flet build apk
-          fi
+          flet build apk --main src/main.py
 
-      - name: Upload APK
+      - name: Subir APK
         uses: actions/upload-artifact@v4
         with:
-          name: MoneyFlow-APK
-          path: src/build/flutter/build/app/outputs/flutter-apk/*.apk
+          name: MoneyFlow-App
+          path: build/apk/*.apk

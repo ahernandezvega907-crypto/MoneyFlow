@@ -30,7 +30,8 @@ jobs:
 
       - name: Compilar APK
         run: |
-          flet build apk --main src/main.py
+          # Corregido: sin --main y con -y para que no se detenga
+          flet build apk src/main.py --project "MoneyFlow" -y
 
       - name: Subir APK
         uses: actions/upload-artifact@v4

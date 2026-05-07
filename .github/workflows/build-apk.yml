@@ -30,10 +30,13 @@ jobs:
 
       - name: Compilar APK
         run: |
+          # Aceptamos licencias de Android primero
+          yes | flutter doctor --android-licenses || true
+          # Compilamos especificando el nombre del proyecto y la ruta
           yes | flet build apk src/main.py --project "MoneyFlow"
-
+          
       - name: Subir APK
         uses: actions/upload-artifact@v4
         with:
           name: MoneyFlow-App
-          path: build/apk/*.apk 
+          path: build/apk/*.apk

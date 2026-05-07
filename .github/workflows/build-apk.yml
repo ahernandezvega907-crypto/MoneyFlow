@@ -32,12 +32,16 @@ jobs:
 
       - name: Compilar APK
         run: |
-          # Aceptamos licencias y compilamos con la ruta corregida
-          yes | flet build apk src/main.py --project "MoneyFlow"
+          # 1. Aceptamos licencias de Android por si acaso
+          yes | flutter doctor --android-licenses || true
           
+          # 2. Entramos a la carpeta src y compilamos el main.py que está ahí dentro
+          # Usamos --template para asegurar que reconozca el proyecto móvil
+          cd src && yes | flet build apk main.py --project "MoneyFlow"
+
       - name: Subir APK
         uses: actions/upload-artifact@v4
         with:
           name: MoneyFlow-App
-          path: build/apk/*.apk
-          
+          # Ajustamos la ruta porque ahora el build se genera dentro de src/
+          path: src/build/apk/*.apk

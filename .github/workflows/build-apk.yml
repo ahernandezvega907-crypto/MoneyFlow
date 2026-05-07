@@ -16,7 +16,7 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Instalar Java
+      - name: Instalar Java (Necesario para Android)
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
@@ -26,15 +26,16 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install flet[all]
-          if [ -f requisitos.txt ]; then pip install -r requisitos.txt; fi
+          # Corregido a requirements.txt segun tu explorador de archivos
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
       - name: Compilar APK
         run: |
-          # Usamos src/main.py porque esa es tu ruta real
-          flet build apk --main src/main.py
+          # Comando corregido: sin --main y con nombre de proyecto
+          flet build apk src/main.py --project "MoneyFlow"
 
-      - name: Subir APK
+      - name: Subir APK como Artefacto
         uses: actions/upload-artifact@v4
         with:
-          name: MoneyFlow-App
+          name: MoneyFlow-Android-App
           path: build/apk/*.apk

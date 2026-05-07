@@ -2,7 +2,8 @@ name: Compilar MoneyFlow APK
 on:
   push:
     branches:
-      - principal # Tu rama actual según VS Code
+      - principal
+      - main
 
 jobs:
   build:
@@ -16,25 +17,23 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Instalar Java (Necesario para Android)
+      - name: Instalar Java
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Instalar Flet y dependencias
+      - name: Instalar dependencias
         run: |
           python -m pip install --upgrade pip
           pip install flet[all]
-          # Corregido a requirements.txt segun tu explorador de archivos
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
       - name: Compilar APK
         run: |
-          # Comando corregido: sin --main y con nombre de proyecto
           flet build apk src/main.py --project "MoneyFlow"
 
-      - name: Subir APK como Artefacto
+      - name: Subir APK
         uses: actions/upload-artifact@v4
         with:
           name: MoneyFlow-Android-App

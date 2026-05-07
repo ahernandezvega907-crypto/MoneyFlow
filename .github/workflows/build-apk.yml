@@ -1,43 +1,35 @@
-name: APK de Compilador MoneyFlow
+name: Build APK
+
 on:
   push:
-    branches:
-      - principal
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - name: Checkout del código
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Configurar Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Instalar Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Instalar Flet y dependencias
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install flet[all]
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install flet
 
-      - name: Compilar APK
+      - name: Build APK
         run: |
-          # Aceptamos licencias de Android primero
-          yes | flutter doctor --android-licenses || true
-          # Compilamos especificando el nombre del proyecto y la ruta
-          yes | flet build apk src/main.py --project "MoneyFlow"
-          
-      - name: Subir APK
+          cd src
+          yes | flet build apk --module-name main
+
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: MoneyFlow-App
-          path: build/apk/*.apk
-          
+          name: MoneyFlow-APK
+          path: '**/*.apk'

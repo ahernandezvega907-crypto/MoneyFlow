@@ -1,0 +1,4 @@
+﻿# Credenciales para MoneyFlow.1 (NO SUBIR AL REPOSITORIO)
+SUPABASE_URL = "https://xwvebpdivouldkvfrogh.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh3dmVicGRpdm91bGRrdmZyb2doIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2NTI1NTgsImV4cCI6MjA5MjIyODU1OH0.5eI8mdM3bR7SAPhqp0tcGPY02GUh3xuUQEvtRHNjU5s"
+GEMINI_API_KEY = "AIzaSyBN6MswmbWs2I58iatqj3ZtsoMoPmDb4IU"

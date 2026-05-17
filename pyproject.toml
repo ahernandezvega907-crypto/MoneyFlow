@@ -1,0 +1,25 @@
+[project]
+name = "MoneyFlow.1"
+version = "1.0.0"
+description = "Gestor de finanzas con Supabase e IA"
+requires-python = ">=3.9"
+dependencies = [
+    "flet>=0.23.0",
+    "supabase",
+    "openpyxl",
+    "reportlab",
+    "apscheduler",
+]
+
+[build-system]
+requires = ["flet"]
+build-backend = "flet.build"
+
+[tool.flet]
+app_name = "MoneyFlow.1"
+app_short_name = "MoneyFlow.1"
+app_description = "MoneyFlow.1 - Gestor de finanzas personales"
+product_name = "MoneyFlow.1"
+package_name = "com.tuempresa.moneyflow1"
+app_icon = "assets/icon.png"
+main = "src/main.py"

@@ -1,0 +1,11 @@
+flet
+supabase
+apscheduler
+plyer
+python-dateutil
+pytz
+matplotlib
+openpyxl
+reportlab
+google-generativeai
+apscheduler

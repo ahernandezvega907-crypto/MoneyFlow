@@ -32,26 +32,17 @@ jobs:
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           if [ -f src/requirements.txt ]; then pip install -r src/requirements.txt; fi
 
-      - name: Instalar Flet y dependencias
-        run: |
-          python -m pip install --upgrade pip
-          pip install flet[all]
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          if [ -f src/requirements.txt ]; then pip install -r src/requirements.txt; fi
-
       - name: Compilar APK
         run: |
-          # Usamos echo "y" para responder automáticamente a la instalación de Flutter SDK si Flet lo solicita
+          # 1. Nos movemos a la carpeta src para que Flet compile en su entorno nativo de configuración
+          cd src
+          
+          # 2. Respondemos "yes" automáticamente al prompt de instalación de Flutter SDK y compilamos
           echo "y" | flet build apk --output build
 
       - name: Subir APK terminada
         uses: actions/upload-artifact@v4
         with:
           name: MoneyFlow-APK
-          path: build/apk/*.apk
-
-      - name: Subir APK terminada
-        uses: actions/upload-artifact@v4
-        with:
-          name: MoneyFlow-APK
-          path: build/apk/*.apk
+          # Al compilar dentro de 'src', Flet deposita el resultado final en esta ruta exacta
+          path: src/build/apk/*.apk

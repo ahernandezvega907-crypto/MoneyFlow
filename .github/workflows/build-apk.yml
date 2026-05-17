@@ -34,15 +34,13 @@ jobs:
 
       - name: Compilar APK
         run: |
-          # 1. Nos movemos a la carpeta src para que Flet compile en su entorno nativo de configuración
-          cd src
-          
-          # 2. Respondemos "yes" automáticamente al prompt de instalación de Flutter SDK y compilamos
-          echo "y" | flet build apk --output build
+          # Compilamos desde la raíz para que lea el pyproject.toml de forma limpia
+          # Forzamos la salida a una carpeta externa llamada 'apk_out' para evitar conflictos de subdirectorios
+          echo "y" | flet build apk --output apk_out
 
       - name: Subir APK terminada
         uses: actions/upload-artifact@v4
         with:
           name: MoneyFlow-APK
-          # Al compilar dentro de 'src', Flet deposita el resultado final en esta ruta exacta
-          path: src/build/apk/*.apk
+          # Buscamos la APK directamente en el directorio de salida personalizado
+          path: apk_out/*.apk

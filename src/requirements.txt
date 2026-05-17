@@ -10,3 +10,4 @@ reportlab
 google-generativeai
 apscheduler
 pytz
+python-dateutil

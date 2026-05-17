@@ -10,6 +10,7 @@ dependencies = [
     "reportlab",
     "apscheduler",
     "pytz",
+    "python-dateutil",
 ]
 
 [build-system]

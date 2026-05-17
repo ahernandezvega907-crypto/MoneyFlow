@@ -9,3 +9,4 @@ openpyxl
 reportlab
 google-generativeai
 apscheduler
+pytz

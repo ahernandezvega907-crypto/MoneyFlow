@@ -1,161 +1,62 @@
+import flet as ft
+import flet_charts as charts
 import os
 import sys
-import io
-import base64
-import csv
-import json
 import hashlib
-import threading
-import random
-import platform
-from datetime import datetime, timedelta
-from collections import defaultdict
-from pathlib import Path
-
-# ==================== CONFIGURACIÓN ====================
-SUPABASE_URL = "https://xwvebpdivouldkvfrogh.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh3dmVicGRpdm91bGRrdmZyb2doIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2NTI1NTgsImV4cCI6MjA5MjIyODU1OH0.5eI8mdM3bR7SAPhqp0tcGPY02GUh3xuUQEvtRHNjU5s"
-GEMINI_API_KEY = "AIzaSyBN6MswmbWs2I58iatqj3ZtsoMoPmDb4IU"
-
-# ==================== IMPORTACIONES OPCIONALES (GRÁFICOS) ====================
-try:
-    import matplotlib.pyplot as plt
-    MATPLOTLIB_OK = True
-except ImportError:
-    MATPLOTLIB_OK = False
-
-# ==================== IMPORTACIONES OPCIONALES (IA) ====================
-try:
-    from google import genai
-    GENAI_OK = True
-except ImportError:
-    GENAI_OK = False
-
-# ==================== IMPORTACIONES PARA NOTIFICACIONES Y SCHEDULER ====================
-try:
-    from plyer import notification
-    PLYER_OK = True
-except ImportError:
-    PLYER_OK = False
-
-from apscheduler.schedulers.background import BackgroundScheduler
-import pytz
-from dateutil.relativedelta import relativedelta
-
+import csv
+import asyncio
+import time
+from datetime import datetime
 from supabase import create_client, Client
-from openpyxl import Workbook
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-from reportlab.lib import colors as reportlab_colors
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.lib.units import inch
-import flet as ft
+from dotenv import load_dotenv
+from debug_helper import init_debugger, safe_call, safe_async
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-client = None
-if GENAI_OK and GEMINI_API_KEY:
-    try:
-        client = genai.Client(api_key=GEMINI_API_KEY)
-    except Exception as e:
-        print(f"Error al inicializar Gemini: {e}")
-        client = None
-
-# ==================== FUNCIÓN PARA VERIFICAR LICENCIA PREMIUM ====================
-def is_premium():
-    if getattr(sys, 'frozen', False):
-        base_path = os.path.dirname(sys.executable)
-    else:
-        base_path = os.path.dirname(os.path.abspath(__file__))
-    license_path = os.path.join(base_path, "license.key")
-    return os.path.exists(license_path)
-
-# ==================== PALETA DE COLORES DINÁMICA ====================
+# ==================== CONFIGURACIÓN DE COLORES ====================
 class AppColors:
     DARK = {
-        "bg": "#0A0A0A",
-        "surface": "#1E1E1E",
-        "primary": "#00BFA6",
-        "secondary": "#1E88E5",
-        "success": "#00C853",
-        "error": "#D32F2F",
-        "text": "#FFFFFF",
-        "text_secondary": "#B0B0B0",
+        "primary": "#4f46e5",
+        "bg": "#0f172a",
+        "surface": "#1e293b",
+        "text": "#f8fafc",
+        "text_secondary": "#94a3b8",
+        "error": "#f43f5e",
+        "success": "#10b981"
     }
     LIGHT = {
-        "bg": "#F5F5F5",
-        "surface": "#FFFFFF",
-        "primary": "#00796B",
-        "secondary": "#1976D2",
-        "success": "#2E7D32",
-        "error": "#C62828",
-        "text": "#000000",
-        "text_secondary": "#555555",
+        "primary": "#4f46e5",
+        "bg": "#ffffff",
+        "surface": "#f1f5f9",
+        "text": "#0f172a",
+        "text_secondary": "#64748b",
+        "error": "#dc2626",
+        "success": "#16a34a"
     }
 
     @staticmethod
-    def get(theme_mode):
-        return AppColors.DARK if theme_mode == ft.ThemeMode.DARK else AppColors.LIGHT
+    def get(mode: ft.ThemeMode):
+        return AppColors.DARK if mode == ft.ThemeMode.DARK else AppColors.LIGHT
 
-# ==================== FORMATEO DE MONEDA ====================
-CURRENCY_FORMATS = {
-    "CRC": {"symbol": "₡", "thousands": ",", "decimal": "."},
-    "USD": {"symbol": "$", "thousands": ",", "decimal": "."},
-    "COP": {"symbol": "$", "thousands": ".", "decimal": ","},
-    "EUR": {"symbol": "€", "thousands": ".", "decimal": ","},
-    "MXN": {"symbol": "$", "thousands": ",", "decimal": "."},
-}
+# ==================== INICIALIZACIÓN DE SUPABASE ====================
+supabase: Client = None
+columna_principal = ft.Column(expand=True, alignment=ft.MainAxisAlignment.START)
 
-def format_currency(amount, currency_code):
-    fmt = CURRENCY_FORMATS.get(currency_code, CURRENCY_FORMATS["USD"])
-    symbol = fmt["symbol"]
-    thousands_sep = fmt["thousands"]
-    decimal_sep = fmt["decimal"]
-
-    amount = round(amount, 2)
-    negative = amount < 0
-    amount = abs(amount)
-
-    int_part = int(amount)
-    dec_part = int((amount - int_part) * 100 + 0.5)
-    dec_str = f"{dec_part:02d}"
-
-    int_str = f"{int_part:,}".replace(",", thousands_sep)
-
-    result = f"{symbol}{int_str}{decimal_sep}{dec_str}"
-    if negative:
-        result = f"-{result}"
-    return result
-
-# ==================== CONSEJOS FINANCIEROS DIARIOS ====================
-CONSEJOS = [
-    "💡 Ahorra al menos el 10% de tus ingresos cada mes.",
-    "📊 Revisa tus gastos semanalmente para detectar fugas.",
-    "🍳 Cocinar en casa puede ahorrarte hasta un 50% en comida.",
-    "🚫 Evita las compras impulsivas: espera 24 horas antes de decidir.",
-    "📱 Compara precios en línea antes de comprar en tienda física.",
-    "💳 Paga tus tarjetas de crédito a tiempo para evitar intereses.",
-    "🎯 Define metas de ahorro claras y alcanzables.",
-    "📅 Planifica tus comidas de la semana para evitar gastos innecesarios.",
-    "🚗 Usa transporte público o comparte viajes para reducir gastos.",
-    "🔔 Activa los recordatorios de pagos para nunca olvidar una factura.",
-    "📈 Invierte en educación financiera: lee libros o cursos gratuitos.",
-    "🏦 Compara comisiones bancarias y elige la cuenta que más te convenga.",
-]
-
-def consejo_del_dia():
-    dia = datetime.now().timetuple().tm_yday
-    return CONSEJOS[dia % len(CONSEJOS)]
-
-# ==================== FUNCIONES DE BASE DE DATOS ====================
-def verificar_conexion():
+def inicializar_supabase(url, key):
+    global supabase
+    if not url or not key:
+        print("❌ ERROR CRÍTICO: No se encontraron las variables de entorno SUPABASE_URL o SUPABASE_KEY")
+        return
     try:
-        supabase.table("categorias").select("count", count="exact").limit(0).execute()
-        return True
-    except:
-        return False
+        supabase = create_client(url, key)
+        print("✓ Cliente Supabase conectado de forma exitosa.")
+    except Exception as e:
+        print(f"Error al conectar a Supabase: {e}")
 
+# ==================== DIAGNÓSTICO DE INFRAESTRUCTURA ====================
 def verificar_y_guia_configuracion(page):
+    global supabase
+    if supabase is None:
+        mostrar_snackbar(page, "Error: Cliente Supabase no inicializado.", AppColors.DARK["error"])
+        return False
     problemas = []
     try:
         supabase.table("categorias").select("count", count="exact").limit(0).execute()
@@ -167,296 +68,94 @@ CREATE TABLE categorias (
   nombre TEXT NOT NULL,
   icono TEXT DEFAULT 'shopping_cart',
   user_id UUID NOT NULL
-);
-INSERT INTO categorias (nombre, icono, user_id) VALUES
-('Comida', 'restaurant', '00000000-0000-0000-0000-000000000001'),
-('Transporte', 'directions_car', '00000000-0000-0000-0000-000000000001'),
-('Ocio', 'movie', '00000000-0000-0000-0000-000000000001'),
-('Salud', 'local_hospital', '00000000-0000-0000-0000-000000000001'),
-('Compras', 'shopping_cart', '00000000-0000-0000-0000-000000000001'),
-('Servicios', 'electrical_services', '00000000-0000-0000-0000-000000000001'),
-('Otros', 'category', '00000000-0000-0000-0000-000000000001');
-            """)
-    try:
-        supabase.table("presupuestos").select("count", count="exact").limit(0).execute()
-    except Exception as e:
-        if "does not exist" in str(e).lower():
-            problemas.append("""
-CREATE TABLE presupuestos (
-  id SERIAL PRIMARY KEY,
-  categoria_id INT REFERENCES categorias(id),
-  monto_limite DECIMAL(10,2) NOT NULL,
-  mes DATE NOT NULL,
-  user_id UUID NOT NULL,
-  UNIQUE(categoria_id, mes, user_id)
-);
-            """)
+);""")
     try:
         supabase.table("gastos").select("categoria_id").limit(1).execute()
     except Exception as e:
         if "column" in str(e).lower() and "does not exist" in str(e).lower():
             problemas.append("ALTER TABLE gastos ADD COLUMN categoria_id INT REFERENCES categorias(id);")
     try:
-        supabase.table("gastos").select("user_id").limit(1).execute()
-    except Exception as e:
-        if "column" in str(e).lower() and "does not exist" in str(e).lower():
-            problemas.append("ALTER TABLE gastos ADD COLUMN user_id UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001';")
-    try:
-        supabase.table("recordatorios").select("count", count="exact").limit(0).execute()
-    except Exception as e:
-        if "does not exist" in str(e).lower():
-            problemas.append("""
-CREATE TABLE recordatorios (
+        supabase.table("presupuestos").select("count", count="exact").limit(0).execute()
+    except Exception:
+        problemas.append("""
+CREATE TABLE presupuestos (
   id SERIAL PRIMARY KEY,
-  user_id UUID NOT NULL,
-  titulo TEXT NOT NULL,
-  monto DECIMAL(10,2),
   categoria_id INT REFERENCES categorias(id),
-  fecha_inicio DATE NOT NULL,
-  frecuencia TEXT NOT NULL DEFAULT 'mensual',
-  activo BOOLEAN DEFAULT true,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-            """)
-    try:
-        supabase.table("rachas").select("user_id").limit(1).execute()
-    except Exception as e:
-        if "does not exist" in str(e).lower():
-            problemas.append("""
-CREATE TABLE rachas (
-  user_id UUID PRIMARY KEY,
-  ultima_fecha DATE,
-  racha_actual INT DEFAULT 0,
-  racha_maxima INT DEFAULT 0
-);
-            """)
+  limite REAL NOT NULL,
+  user_id UUID NOT NULL,
+  UNIQUE(categoria_id, user_id)
+);""")
     if problemas:
         contenido_sql = "\n\n".join(problemas)
         page.dialog = ft.AlertDialog(
-            title=ft.Text("⚙️ Configuración inicial requerida", color=AppColors.DARK["primary"]),
+            title=ft.Text(value="⚙️ Configuración inicial requerida", color=AppColors.DARK["primary"]),
             content=ft.Column([
-                ft.Text("Ejecuta el siguiente SQL en Supabase:", size=14),
-                ft.Container(content=ft.Text(contenido_sql, selectable=True, size=12, font_family="monospace"),
-                             bgcolor="#2d2d2d", padding=10, border_radius=8),
-                ft.Text("Luego reinicia la app.", size=14, color=AppColors.DARK["error"]),
+                ft.Text(value="Ejecuta el SQL requerido en tu consola de Supabase y reinicia la app.", size=14),
+                ft.Container(content=ft.Text(value=contenido_sql, selectable=True, size=12, font_family="monospace"), bgcolor="#2d2d2d", padding=10, border_radius=8)
             ], spacing=10, scroll=ft.ScrollMode.AUTO),
-            actions=[ft.TextButton("Entendido", on_click=lambda e: close_dialog(page))],
-            actions_alignment=ft.MainAxisAlignment.CENTER,
+            actions=[ft.TextButton(text="Entendido", on_click=lambda e: safe_call(close_dialog, page)())],
         )
         page.dialog.open = True
         page.update()
         return False
     return True
 
-def close_dialog(page, dlg=None):
-    """Cierra un diálogo específico o el diálogo actual de page.dialog."""
-    if dlg:
-        dlg.open = False
+def close_dialog(page):
+    if page.dialog:
+        page.dialog.open = False
         page.update()
-    else:
-        if page.dialog:
-            page.dialog.open = False
-            page.update()
 
-# ==================== CATEGORÍAS (CON EMOJIS PERSONALIZABLES) ====================
-EMOJI_LIST = ["🍔", "🚗", "🎬", "🏥", "🛍️", "⚡", "📚", "✈️", "🎵", "🏠", "🐾", "💻", "🎁", "🏋️", "☕", "💡"]
-
-def cargar_categorias(user_id):
-    try:
-        res = supabase.table("categorias").select("id, nombre, icono, user_id").or_(
-            f"user_id.eq.{user_id},user_id.eq.00000000-0000-0000-0000-000000000001"
-        ).execute()
-        datos = res.data if res.data else []
-        propias = [c for c in datos if c["user_id"] == user_id]
-        if not propias:
-            globales = supabase.table("categorias").select("*").eq("user_id", "00000000-0000-0000-0000-000000000001").execute()
-            if globales.data:
-                for cat in globales.data:
-                    supabase.table("categorias").insert({
-                        "nombre": cat["nombre"],
-                        "icono": cat.get("icono", "category"),
-                        "user_id": user_id
-                    }).execute()
-            datos = supabase.table("categorias").select("id, nombre, icono, user_id").or_(
-                f"user_id.eq.{user_id},user_id.eq.00000000-0000-0000-0000-000000000001"
-            ).execute().data
-        return datos
-    except Exception as e:
-        print("Error cargando categorías:", e)
-        return []
-
-def agregar_categoria(nombre, icono, user_id):
-    return supabase.table("categorias").insert({
-        "nombre": nombre,
-        "icono": icono,
-        "user_id": user_id
-    }).execute()
-
-def editar_categoria(categoria_id, nuevo_nombre, nuevo_icono):
-    return supabase.table("categorias").update({
-        "nombre": nuevo_nombre,
-        "icono": nuevo_icono
-    }).eq("id", categoria_id).execute()
-
-def eliminar_categoria(categoria_id):
-    return supabase.table("categorias").delete().eq("id", categoria_id).execute()
-
-def cargar_gastos_con_categoria(user_id):
-    try:
-        res = supabase.table("gastos").select("*, categorias(nombre, icono)").order("created_at").eq("user_id", user_id).execute()
-        return res.data
-    except Exception as e:
-        print("Error cargando gastos:", e)
-        return []
-
-def generar_grafico_tendencia(datos, theme_mode):
-    if not MATPLOTLIB_OK:
-        return None
-    if not datos:
-        return None
-    colors = AppColors.get(theme_mode)
-    gastos_por_mes = defaultdict(float)
-    for g in datos:
-        fecha_str = g.get("created_at")
-        if fecha_str:
-            try:
-                fecha = datetime.fromisoformat(fecha_str.replace('Z', '+00:00'))
-                mes_key = fecha.strftime("%Y-%m")
-                gastos_por_mes[mes_key] += g.get("monto", 0)
-            except:
-                pass
-    if not gastos_por_mes:
-        return None
-    meses_ordenados = sorted(gastos_por_mes.keys())
-    montos = [gastos_por_mes[m] for m in meses_ordenados]
-    plt.figure(figsize=(4, 2.5))
-    plt.plot(meses_ordenados, montos, marker='o', color=colors["primary"], linewidth=2, markersize=4)
-    plt.fill_between(meses_ordenados, montos, alpha=0.2, color=colors["primary"])
-    plt.title("Evolución mensual de gastos", fontsize=10, color=colors["text"])
-    plt.xlabel("Mes", fontsize=8, color=colors["text_secondary"])
-    plt.ylabel("Gasto total", fontsize=8, color=colors["text_secondary"])
-    plt.xticks(rotation=45, ha='right', fontsize=7, color=colors["text_secondary"])
-    plt.yticks(fontsize=7, color=colors["text_secondary"])
-    plt.tight_layout()
-    buf = io.BytesIO()
-    plt.savefig(buf, format='png', transparent=True, bbox_inches='tight', facecolor=colors["bg"])
-    buf.seek(0)
-    img_str = base64.b64encode(buf.read()).decode()
-    plt.close()
-    return ft.Image(src=f"data:image/png;base64,{img_str}", width=350, height=200)
-
-def generar_grafico_gastos(datos, theme_mode):
-    if not MATPLOTLIB_OK:
-        return None
-    if not datos:
-        return None
-    colors = AppColors.get(theme_mode)
-    resumen = {}
-    for g in datos:
-        nombre = g.get("nombre", "Sin nombre")
-        monto = g.get("monto", 0)
-        resumen[nombre] = resumen.get(nombre, 0) + monto
-    items = sorted(resumen.items(), key=lambda x: x[1], reverse=True)[:5]
-    if not items:
-        return None
-    labels, sizes = zip(*items)
-    plt.figure(figsize=(3, 3))
-    plt.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=90,
-            colors=[colors["primary"], colors["secondary"], "#FFB74D", "#E57373", "#BA68C8"],
-            wedgeprops=dict(width=0.5, edgecolor=colors["bg"]))
-    plt.axis('equal')
-    buf = io.BytesIO()
-    plt.savefig(buf, format='png', transparent=True, bbox_inches='tight', facecolor=colors["bg"])
-    buf.seek(0)
-    img_str = base64.b64encode(buf.read()).decode()
-    plt.close()
-    return ft.Image(src=f"data:image/png;base64,{img_str}", width=180, height=180)
-
-def mostrar_snackbar(page, texto, color):
-    page.snack_bar = ft.SnackBar(content=ft.Text(texto), bgcolor=color, action="OK")
+def mostrar_snackbar(page, mensaje, color):
+    page.snack_bar = ft.SnackBar(ft.Text(mensaje), bgcolor=color)
     page.snack_bar.open = True
     page.update()
 
-# ==================== MONITOREO DE CONEXIÓN (CORREGIDO) ====================
-def iniciar_monitoreo_conexion(page, estado_conexion, online_ref, sincronizando_ref, sincronizar_callback):
-    timer = None
+# ==================== CONFIGURACIÓN DE RUTA SEGURA ====================
+def get_secure_pin_path() -> str:
+    """Devuelve la ruta donde se guardará el PIN, usando una carpeta oculta del sistema."""
+    base_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
+    app_dir = os.path.join(base_dir, "MoneyFlow")
+    if not os.path.exists(app_dir):
+        os.makedirs(app_dir)
+    return os.path.join(app_dir, "pin_hash.txt")
 
-    def verificar():
-        nonlocal timer
-        if page.session is None:
-            return
-        online_anterior = online_ref[0]
-        conectado = verificar_conexion()
-        online_ref[0] = conectado
-        if conectado != online_anterior:
-            try:
-                if sincronizando_ref[0]:
-                    estado_conexion.value = "⏳ Sincronizando..."
-                    estado_conexion.color = AppColors.get(page.theme_mode)["text_secondary"]
-                elif conectado:
-                    estado_conexion.value = "🟢 Conectado"
-                    estado_conexion.color = AppColors.get(page.theme_mode)["success"]
-                else:
-                    estado_conexion.value = "🔴 Sin conexión"
-                    estado_conexion.color = AppColors.get(page.theme_mode)["error"]
-                page.update()
-            except RuntimeError:
-                return
-        timer = threading.Timer(30.0, verificar)
-        timer.start()
+# ==================== SEGURIDAD DEL PIN (PBKDF2 + bloqueo) ====================
+def generar_salt():
+    return os.urandom(16).hex()
 
-    timer = threading.Timer(30.0, verificar)
-    timer.start()
+def hash_pin_seguro(pin: str, salt: str) -> str:
+    return hashlib.pbkdf2_hmac('sha256', pin.encode(), salt.encode(), 100000).hex()
 
-    def cancelar():
-        if timer:
-            timer.cancel()
-    return cancelar
-
-# ==================== GUARDADO DE ARCHIVOS ====================
-def guardar_archivo_en_carpeta(page, nombre_archivo, contenido_bytes, subcarpeta="exportaciones", colors=None):
+def save_pin_hash(pin: str):
+    salt = generar_salt()
+    hash_val = hash_pin_seguro(pin, salt)
     try:
-        import tempfile
-        temp_dir = tempfile.gettempdir()
-        export_path = os.path.join(temp_dir, nombre_archivo)
-        with open(export_path, "wb") as f:
-            f.write(contenido_bytes)
-        msg = f"✓ Guardado en: {export_path}"
+        with open(get_secure_pin_path(), "w") as f:
+            f.write(f"{salt}:{hash_val}")
     except Exception as e:
-        msg = f"❌ Error al guardar: {e}"
-    color = colors["success"] if colors else "#00C853"
-    mostrar_snackbar(page, msg, color)
-
-# ==================== SISTEMA DE PIN DE ACCESO ====================
-def hash_pin(pin):
-    return hashlib.sha256(pin.encode()).hexdigest()
-
-def get_pin_file_path():
-    if getattr(sys, 'frozen', False):
-        base_path = os.path.dirname(sys.executable)
-    else:
-        base_path = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(base_path, "pin_hash.txt")
-
-def save_pin_hash(pin):
-    with open(get_pin_file_path(), "w") as f:
-        f.write(hash_pin(pin))
+        print(f"Error al guardar PIN: {e}")
 
 def load_pin_hash():
-    path = get_pin_file_path()
-    if os.path.exists(path):
-        with open(path, "r") as f:
-            return f.read().strip()
-    return None
+    ruta_pin = get_secure_pin_path()
+    if os.path.exists(ruta_pin):
+        try:
+            with open(ruta_pin, "r") as f:
+                data = f.read().strip().split(":")
+                if len(data) == 2:
+                    return data[0], data[1]
+        except Exception:
+            return None, None
+    return None, None
 
+# ==================== PANTALLA DE PIN ====================
 def solicitar_pin(page, on_correct_pin):
     colors = AppColors.get(page.theme_mode)
-    page.clean()
     page.bgcolor = colors["bg"]
     
     pin_input = ft.TextField(
         label="PIN de acceso",
         password=True,
+        can_reveal_password=True,
         keyboard_type=ft.KeyboardType.NUMBER,
         max_length=4,
         width=150,
@@ -465,1590 +164,1544 @@ def solicitar_pin(page, on_correct_pin):
         bgcolor=colors["surface"],
         color=colors["text"],
     )
-    error_text = ft.Text("", color=colors["error"])
-    saved_hash = load_pin_hash()
+    error_text = ft.Text(value="", color=colors["error"])
+    salt, saved_hash = load_pin_hash()
+    intentos_fallidos = 0
+    bloqueado_hasta = 0
 
     def verificar(e):
+        nonlocal intentos_fallidos, bloqueado_hasta
+        if time.time() < bloqueado_hasta:
+            segundos = int(bloqueado_hasta - time.time())
+            error_text.value = f"Demasiados intentos. Espera {segundos}s."
+            page.update()
+            return
+
         entered = pin_input.value.strip()
         if not entered or len(entered) != 4:
             error_text.value = "Ingresa un PIN de 4 dígitos"
             page.update()
             return
+
         if saved_hash is None:
             save_pin_hash(entered)
             mostrar_snackbar(page, "PIN configurado correctamente", colors["success"])
-            page.clean()
             on_correct_pin()
-        elif hash_pin(entered) == saved_hash:
-            page.clean()
+        elif hash_pin_seguro(entered, salt) == saved_hash:
+            intentos_fallidos = 0
             on_correct_pin()
         else:
-            error_text.value = "PIN incorrecto"
+            intentos_fallidos += 1
+            if intentos_fallidos >= 3:
+                bloqueado_hasta = time.time() + 30
+                error_text.value = "Bloqueado por seguridad. Espera 30s."
+            else:
+                error_text.value = f"PIN incorrecto ({intentos_fallidos}/3 intentos)"
             pin_input.value = ""
             page.update()
 
-    page.add(
-        ft.Container(
+    vista_pin = ft.Container(
+        content=ft.Column([
+            ft.Icon(ft.Icons.LOCK_ROUNDED, size=40, color=colors["primary"]),
+            ft.Text(value="🔐 Enhorabuena - Ingresa tu PIN", size=24, weight="bold", color=colors["primary"]),
+            ft.Text(value="Protege tu información financiera", size=14, color=colors["text_secondary"]),
+            ft.Divider(height=20, color=ft.Colors.TRANSPARENT),
+            pin_input,
+            ft.FilledButton(
+                content=ft.Text("Acceder", color="white"),
+                on_click=lambda e: safe_call(verificar, e)(),
+                style=ft.ButtonStyle(bgcolor=colors["primary"])
+            ),
+            error_text,
+        ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15),
+        padding=20, 
+        expand=True
+    )
+
+    page.controls.clear()
+    page.appbar = None
+    page.add(vista_pin)
+    page.update()
+
+# ==================== LOGIN ====================
+def login_view(page: ft.Page):
+    colors = AppColors.get(page.theme_mode)
+    page.bgcolor = colors["bg"]
+    page.appbar = None
+    page.navigation_bar = None
+    
+    email_input = ft.TextField(label="Correo Electrónico", border_color=colors["primary"], color=colors["text"])
+    password_input = ft.TextField(label="Contraseña", password=True, can_reveal_password=True, border_color=colors["primary"], color=colors["text"])
+    error_text = ft.Text(value="", color=colors["error"])
+
+    def do_login(e):
+        global supabase
+        if supabase is None:
+            error_text.value = "Error: El cliente no está inicializado."
+            page.update()
+            return
+        try:
+            e.control.disabled = True
+            page.update()
+            res = supabase.auth.sign_in_with_password({"email": email_input.value, "password": password_input.value})
+            if res and res.user:
+                page.user_id = res.user.id
+                solicitar_pin(page, lambda: mostrar_interfaz_principal(page))
+            else:
+                error_text.value = "No se pudo obtener la sesión del usuario."
+                e.control.disabled = False
+                page.update()
+        except Exception as err:
+            print(f"\n❌ [ERROR DETECTADO EN LOGIN]: {str(err)}\n")
+            error_text.value = "Error de autenticación. Verifica tus datos o tu conexión."
+            e.control.disabled = False
+            page.update()
+
+    vista_login = ft.Container(
+        content=ft.Column([
+            ft.Text("MoneyFlow - Iniciar Sesión", size=28, weight="bold", color=colors["primary"]),
+            email_input, 
+            password_input,
+            ft.FilledButton(
+                "Ingresar",
+                on_click=lambda e: safe_call(do_login, e)(),
+                style=ft.ButtonStyle(bgcolor=colors["primary"], color="white")
+            ),
+            error_text
+        ], spacing=15, alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+        padding=30,
+        expand=True
+    )
+
+    page.controls.clear()
+    page.add(vista_login)
+    page.update()
+
+# ==================== FUNCIONES DE LICENCIA ====================
+async def obtener_plan(page: ft.Page) -> str:
+    try:
+        res = supabase.table("profiles").select("plan").eq("user_id", page.user_id).single().execute()
+        return res.data.get("plan", "free") if res.data else "free"
+    except Exception:
+        return "free"
+
+def mostrar_banner_limite(page: ft.Page, container_banner: ft.Container, mensaje: str):
+    container_banner.content = ft.Row([
+        ft.Icon(ft.Icons.LOCK, color=ft.Colors.ORANGE),
+        ft.Text(mensaje, size=14, color=ft.Colors.ORANGE, expand=True),
+        ft.TextButton("Activar licencia", on_click=lambda e: safe_call(mostrar_dialogo_activacion, page)()),
+        # Si tienes enlace de pago, descomenta la siguiente línea:
+        # ft.TextButton("Comprar ($10)", on_click=lambda e: page.launch_url("https://paypal.me/tuusuario/10")),
+    ])
+    container_banner.visible = True
+    page.update()
+
+def ocultar_banner_limite(page: ft.Page, container_banner: ft.Container):
+    container_banner.visible = False
+    page.update()
+
+def mostrar_dialogo_activacion(page: ft.Page):
+    colors = AppColors.get(page.theme_mode)
+    email = ""
+    try:
+        user = supabase.auth.get_user()
+        email = user.user.email if user and user.user else ""
+    except Exception:
+        pass
+
+    codigo_input = ft.TextField(
+        label="Código de activación",
+        hint_text="Ej. MF-ABCD1234EFGH",
+        border_color=colors["primary"],
+        color=colors["text"],
+        autofocus=True,
+        text_align=ft.TextAlign.CENTER
+    )
+    error_text = ft.Text("", color=colors["error"])
+    progress = ft.ProgressBar(visible=False, width=200, color=colors["primary"])
+
+    async def activar_click(e):
+        error_text.value = ""
+        progress.visible = True
+        page.update()
+        
+        codigo = codigo_input.value.strip()
+        if not codigo:
+            error_text.value = "Ingresa un código."
+            progress.visible = False
+            page.update()
+            return
+        
+        try:
+            result = supabase.rpc("activate_license", {"p_email": email, "p_code": codigo}).execute()
+            if result.data:
+                mostrar_snackbar(page, "🎉 ¡Licencia activada! Ya tienes acceso ilimitado.", colors["success"])
+                dlg.open = False
+                page.update()
+            else:
+                error_text.value = "Código inválido o ya usado."
+        except Exception as ex:
+            error_text.value = f"Error al validar: {ex}"
+        finally:
+            progress.visible = False
+            page.update()
+
+    dlg = ft.AlertDialog(
+        title=ft.Text("🔒 Activar Licencia", color=colors["primary"]),
+        content=ft.Column([
+            ft.Text(f"Email: {email}", size=12, color=colors["text_secondary"]),
+            ft.Text("Ingresa el código que recibiste al comprar tu licencia.", size=14, color=colors["text"]),
+            codigo_input,
+            progress,
+            error_text
+        ], spacing=15, tight=True),
+        actions=[
+            ft.TextButton("Cancelar", on_click=lambda e: close_dialog(page)),
+            ft.FilledButton("Activar", on_click=lambda e: safe_call(activar_click, e)()),
+        ],
+    )
+    page.dialog = dlg
+    dlg.open = True
+    page.update()
+
+# ==================== CACHÉ Y TEMPORIZADOR ====================
+_cache_dashboard = {"timestamp": 0, "data": None}
+_timer_dashboard = None
+
+def cancelar_timer_dashboard():
+    global _timer_dashboard
+    if _timer_dashboard and not _timer_dashboard.done():
+        _timer_dashboard.cancel()
+
+# ==================== DASHBOARD CON CACHÉ Y PRESUPUESTOS ====================
+def ejecutar_vista_dashboard(page: ft.Page):
+    global columna_principal, supabase, _timer_dashboard
+    cancelar_timer_dashboard()
+    colors = AppColors.get(page.theme_mode)
+    columna_principal.controls.clear()
+
+    lbl_balance = ft.Text("$0.00", size=24, weight="bold", color="white")
+    lbl_ingresos = ft.Text("$0.00", size=20, weight="bold", color="white")
+    lbl_gastos = ft.Text("$0.00", size=20, weight="bold", color="white")
+    grafico_container = ft.Container(height=220, alignment=ft.Alignment.CENTER)
+    lista_leyendas = ft.Column(spacing=5, alignment=ft.MainAxisAlignment.CENTER)
+    indicador_carga = ft.ProgressBar(width=200, color=colors["primary"], visible=False)
+    alerta_presupuesto = ft.Text("", color=colors["error"], visible=False)
+    presupuestos_column = ft.Column(spacing=5)
+
+    btn_refrescar = ft.IconButton(
+        icon=ft.Icons.REFRESH,
+        icon_color=colors["primary"],
+        tooltip="Actualizar ahora",
+        on_click=lambda e: safe_call(actualizar_dashboard, True)()
+    )
+
+    def crear_kpi_card(titulo, control_texto, icon, color_inicio, color_fin):
+        return ft.Container(
             content=ft.Column([
-                ft.Text("🔐 Ingresa tu PIN", size=24, weight="bold", color=colors["primary"]),
-                ft.Text("Protege tu información financiera", size=14, color=colors["text_secondary"]),
-                ft.Divider(height=20, color=ft.Colors.TRANSPARENT),
-                pin_input,
-                ft.Button("Acceder", on_click=verificar, style=ft.ButtonStyle(bgcolor=colors["primary"], color=colors["bg"])),
-                error_text,
-            ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15),
-            padding=20,
+                ft.Row([ft.Icon(icon, color="white", size=20), ft.Text(titulo, color="white70", size=12, weight="w500")]),
+                control_texto
+            ], spacing=5, alignment=ft.MainAxisAlignment.CENTER),
+            gradient=ft.LinearGradient(begin=ft.Alignment.TOP_LEFT, end=ft.Alignment.BOTTOM_RIGHT, colors=[color_inicio, color_fin]),
+            padding=15,
+            border_radius=16,
             expand=True,
-            alignment=ft.Alignment.CENTER
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=4, color="black12")
         )
+
+    card_balance = crear_kpi_card("Balance Neto", lbl_balance, ft.Icons.ACCOUNT_BALANCE_WALLET, "#4f46e5", "#3730a3")
+    card_ingresos = crear_kpi_card("Ingresos Totales", lbl_ingresos, ft.Icons.ARROW_UPWARD_ROUNDED, "#10b981", "#065f46")
+    card_gastos = crear_kpi_card("Gastos Acumulados", lbl_gastos, ft.Icons.ARROW_DOWNWARD_ROUNDED, "#f43f5e", "#9f1239")
+
+    row_kpis = ft.ResponsiveRow([
+        ft.Container(content=card_balance, col={"xs": 12, "md": 4}),
+        ft.Container(content=card_ingresos, col={"xs": 12, "sm": 6, "md": 4}),
+        ft.Container(content=card_gastos, col={"xs": 12, "sm": 6, "md": 4}),
+    ], run_spacing=10)
+
+    def actualizar_dashboard(forzar=False):
+        global _cache_dashboard
+        ahora = time.time()
+        if not forzar and (ahora - _cache_dashboard["timestamp"] < 30):
+            datos = _cache_dashboard["data"]
+        else:
+            indicador_carga.visible = True
+            page.update()
+            try:
+                raw_datos = supabase.table("gastos").select("*").eq("user_id", page.user_id).execute()
+                movimientos = raw_datos.data or []
+            except Exception:
+                movimientos = []
+                mostrar_snackbar(page, "Error al sincronizar Dashboard con Supabase.", colors["error"])
+            datos = movimientos
+            _cache_dashboard["timestamp"] = ahora
+            _cache_dashboard["data"] = movimientos
+            indicador_carga.visible = False
+
+        total_ingresos = 0.0
+        total_gastos = 0.0
+        gastos_por_categoria = {}
+
+        for m in datos:
+            try: monto = float(m.get("monto", 0) or 0)
+            except ValueError: monto = 0.0
+
+            tipo = m.get("tipo", "gasto")
+            if tipo == "ingreso":
+                total_ingresos += monto
+            else:
+                total_gastos += monto
+                cat_id = str(m.get("categoria_id"))
+                gastos_por_categoria[cat_id] = gastos_por_categoria.get(cat_id, 0.0) + monto
+
+        balance_neto = total_ingresos - total_gastos
+        lbl_balance.value = f"${balance_neto:,.2f}"
+        lbl_ingresos.value = f"${total_ingresos:,.2f}"
+        lbl_gastos.value = f"${total_gastos:,.2f}"
+
+        grafico_container.content = None
+        lista_leyendas.controls.clear()
+        if total_gastos > 0:
+            secciones_pie = []
+            paleta = ["#14b8a6", "#f59e0b", "#3b82f6", "#a855f7", "#ec4899"]
+            try:
+                cats = supabase.table("categorias").select("*").eq("user_id", page.user_id).execute()
+                mapa_nombres = {str(c["id"]): c["nombre"] for c in (cats.data or [])}
+            except Exception:
+                mapa_nombres = {}
+            
+            for i, (cat_id, subtotal) in enumerate(gastos_por_categoria.items()):
+                cat_name = mapa_nombres.get(cat_id, cat_id).capitalize()
+                color_sel = paleta[i % len(paleta)]
+                porcentaje = (subtotal / total_gastos) * 100
+                
+                secciones_pie.append(
+                    charts.PieChartSection(
+                        value=float(subtotal), 
+                        title=f"{porcentaje:.1f}%", 
+                        color=color_sel, 
+                        radius=45,
+                        title_style=ft.TextStyle(size=11, color="white", weight="bold")
+                    )
+                )
+                lista_leyendas.controls.append(
+                    ft.Row([
+                        ft.Container(width=10, height=10, bgcolor=color_sel, border_radius=3),
+                        ft.Text(f"{cat_name}: ", size=12, color=colors["text_secondary"]),
+                        ft.Text(f"${subtotal:,.2f}", size=12, color=colors["text"], weight="bold")
+                    ], spacing=8)
+                )
+            
+            grafico_container.content = charts.PieChart(
+                sections=secciones_pie, 
+                sections_space=2, 
+                center_space_radius=35, 
+                expand=True
+            )
+        else:
+            grafico_container.content = ft.Text("No registras gastos este mes para graficar.", color=colors["text_secondary"], size=13, italic=True)
+            lista_leyendas.controls.append(ft.Text("Registra gastos en la pestaña de movimientos.", size=12, color=colors["text_secondary"]))
+
+        presupuestos_column.controls.clear()
+        mensajes_alerta = []
+        try:
+            presupuestos_data = supabase.table("presupuestos").select("*, categorias(nombre)").eq("user_id", page.user_id).execute()
+            for p in (presupuestos_data.data or []):
+                cat_id_str = str(p["categoria_id"])
+                nombre_cat = p.get("categorias", {}).get("nombre", "Cat").capitalize()
+                limite = float(p["limite"])
+                gastado = gastos_por_categoria.get(cat_id_str, 0.0)
+                porcentaje_uso = (gastado / limite * 100) if limite > 0 else 0
+                color_barra = ft.Colors.GREEN_400 if porcentaje_uso < 80 else ft.Colors.ORANGE_400 if porcentaje_uso < 100 else ft.Colors.RED_400
+                
+                presupuestos_column.controls.append(
+                    ft.Column([
+                        ft.Row([
+                            ft.Text(f"{nombre_cat}", size=12, color=colors["text_secondary"]),
+                            ft.Text(f"${gastado:.0f}/{limite:.0f}", size=12, color=colors["text"], weight="bold")
+                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                        ft.ProgressBar(value=min(porcentaje_uso/100, 1.0), color=color_barra, bgcolor=colors["bg"], height=6),
+                    ], spacing=2)
+                )
+                
+                if porcentaje_uso >= 100:
+                    mensajes_alerta.append(f"⚠️ Límite superado en {nombre_cat}: ${gastado:.0f} de ${limite:.0f}")
+                elif porcentaje_uso >= 80:
+                    mensajes_alerta.append(f"⚡ Te acercas al límite en {nombre_cat}: {porcentaje_uso:.0f}%")
+        except Exception:
+            presupuestos_column.controls.append(ft.Text("Sin presupuestos definidos.", size=12, color=colors["text_secondary"]))
+
+        alerta_presupuesto.visible = bool(mensajes_alerta)
+        if mensajes_alerta:
+            alerta_presupuesto.value = "\n".join(mensajes_alerta)
+
+        page.update()
+
+    async def temporizador_actualizacion():
+        while True:
+            await asyncio.sleep(30)
+            if page.navigation_bar and page.navigation_bar.selected_index == 0:
+                actualizar_dashboard()
+    _timer_dashboard = asyncio.ensure_future(temporizador_actualizacion())
+
+    columna_principal.controls.append(
+        ft.Column([
+            ft.Row([
+                ft.Text("Resumen Financiero", size=24, weight="bold", color=colors["primary"]),
+                btn_refrescar
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            ft.Text("Echa un vistazo rápido al rendimiento de tu dinero.", color=colors["text_secondary"], size=14),
+            ft.Row([
+                ft.Icon(ft.Icons.CLOUD_SYNC, color=ft.Colors.GREEN_400, size=14),
+                ft.Text("Sincronizado en todos tus dispositivos", size=12, color=ft.Colors.GREEN_400, italic=True)
+            ], spacing=5),
+            indicador_carga,
+            alerta_presupuesto,
+            ft.Divider(height=10, color="transparent"),
+            row_kpis,
+            ft.Divider(height=15, color="transparent"),
+            ft.Text("Distribución del Gasto", size=18, weight="bold", color=colors["primary"]),
+            ft.Container(
+                content=ft.ResponsiveRow([
+                    ft.Container(content=grafico_container, col={"xs": 12, "md": 5}),
+                    ft.Container(content=lista_leyendas, col={"xs": 12, "md": 7}, padding=10, alignment=ft.Alignment.CENTER_LEFT)
+                ], run_spacing=20, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                padding=15, bgcolor=colors["surface"], border_radius=16
+            ),
+            ft.Divider(height=15, color="transparent"),
+            ft.Text("Estado de Presupuestos", size=18, weight="bold", color=colors["primary"]),
+            presupuestos_column
+        ], scroll=ft.ScrollMode.AUTO, expand=True)
+    )
+    actualizar_dashboard(True)
+
+# ==================== PANTALLA MOVIMIENTOS (CON BANNER Y LICENCIA) ====================
+def ir_a_movimientos_crud(page: ft.Page):
+    global columna_principal, supabase
+    cancelar_timer_dashboard()
+    colors = AppColors.get(page.theme_mode)
+    columna_principal.controls.clear()
+
+    banner_limite = ft.Container(visible=False, bgcolor=ft.Colors.with_opacity(0.1, ft.Colors.ORANGE), padding=10, border_radius=8)
+    lista_movimientos = ft.ListView(expand=True, spacing=10, padding=5)
+    mapa_categorias = {}
+
+    def cargar_mapa_categorias():
+        nonlocal mapa_categorias
+        try:
+            res = supabase.table("categorias").select("*").eq("user_id", page.user_id).execute()
+            mapa_categorias = {str(c["id"]): c["nombre"] for c in res.data}
+        except Exception:
+            mapa_categorias = {}
+
+    def obtener_nombre_categoria(registro):
+        if registro.get("tipo") == "ingreso":
+            return registro.get("categoria_nombre_ingreso") or "Ingreso"
+        else:
+            cat_id = str(registro.get("categoria_id"))
+            return mapa_categorias.get(cat_id, "General")
+
+    def refrescar_lista():
+        lista_movimientos.controls.clear()
+        try:
+            data = supabase.table("gastos").select("*")\
+                       .eq("user_id", page.user_id)\
+                       .order("created_at", desc=True)\
+                       .execute()
+            movimientos = data.data or []
+        except Exception:
+            movimientos = []
+            mostrar_snackbar(page, "Error al cargar movimientos.", colors["error"])
+
+        if not movimientos:
+            lista_movimientos.controls.append(
+                ft.Text("No hay movimientos registrados aún.", color=colors["text_secondary"], italic=True)
+            )
+        else:
+            for m in movimientos:
+                fecha_str = m.get("created_at", "")[:10]
+                concepto = m.get("nombre", "Sin concepto")
+                monto = float(m.get("monto", 0) or 0)
+                tipo = m.get("tipo", "gasto")
+                cat_nombre = obtener_nombre_categoria(m)
+                signo = "+" if tipo == "ingreso" else "-"
+                color_monto = ft.Colors.GREEN_400 if tipo == "ingreso" else ft.Colors.RED_400
+
+                lista_movimientos.controls.append(
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Column([
+                                ft.Text(f"{signo}${monto:,.2f}", size=16, weight="bold", color=color_monto),
+                                ft.Text(f"{concepto}  •  {cat_nombre}", size=12, color=colors["text_secondary"]),
+                            ], expand=True),
+                            ft.Text(fecha_str, size=12, color=colors["text_secondary"]),
+                            ft.IconButton(icon=ft.Icons.EDIT, icon_color=colors["primary"], tooltip="Editar", on_click=lambda e, reg=m: safe_call(editar_transaccion, reg)()),
+                            ft.IconButton(icon=ft.Icons.DELETE, icon_color=colors["error"], tooltip="Eliminar", on_click=lambda e, reg=m: safe_call(confirmar_eliminar, reg)()),
+                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                        bgcolor=colors["surface"], padding=10, border_radius=10,
+                        border=ft.Border.all(1, ft.Colors.with_opacity(0.1, ft.Colors.WHITE))
+                    )
+                )
+        page.update()
+
+    async def verificar_estado_limite():
+        plan = await obtener_plan(page)
+        if plan == "paid":
+            ocultar_banner_limite(page, banner_limite)
+            return True
+        try:
+            res = supabase.table("gastos").select("count", count="exact").eq("user_id", page.user_id).execute()
+            total = res.count or 0
+        except Exception:
+            total = 0
+
+        if total >= 50:
+            mostrar_banner_limite(page, banner_limite, "Has alcanzado el límite gratuito. Activa tu licencia para continuar.")
+            return False
+        else:
+            ocultar_banner_limite(page, banner_limite)
+            return True
+
+    def abrir_formulario(registro_editar=None):
+        if registro_editar is None:
+            async def _check_and_open():
+                puede = await verificar_estado_limite()
+                if not puede:
+                    mostrar_snackbar(page, "Límite gratuito alcanzado. Activa tu licencia.", colors["error"])
+                    return
+                _abrir_formulario_real(registro_editar)
+            asyncio.ensure_future(_check_and_open())
+        else:
+            _abrir_formulario_real(registro_editar)
+
+    def _abrir_formulario_real(registro_editar):
+        nonlocal mapa_categorias
+        cargar_mapa_categorias()
+        form_tipo = "gasto" if registro_editar is None else registro_editar.get("tipo", "gasto")
+        
+        txt_concepto = ft.TextField(label="Concepto" if form_tipo == "gasto" else "Origen del ingreso",
+                                    value=registro_editar.get("nombre", "") if registro_editar else "",
+                                    border_color=colors["primary"], autofocus=True)
+        txt_monto = ft.TextField(label="Monto ($)",
+                                 value=str(registro_editar.get("monto", "")) if registro_editar else "",
+                                 keyboard_type=ft.KeyboardType.NUMBER, border_color=colors["primary"])
+        dd_categoria = ft.Dropdown(label="Categoría", border_color=colors["primary"], options=[])
+        toggle_tipo = ft.SegmentedButton(
+            allow_multiple_selection=False, selected=[form_tipo],
+            segments=[ft.Segment(value="gasto", label=ft.Text("Gasto")),
+                      ft.Segment(value="ingreso", label=ft.Text("Ingreso"))],
+            visible=registro_editar is None
+        )
+        
+        def cargar_opciones_categoria(según_tipo):
+            nonlocal mapa_categorias
+            if según_tipo == "ingreso":
+                dd_categoria.options = [
+                    ft.dropdown.Option(text="Capital Inicial", key="capital_inicial"),
+                    ft.dropdown.Option(text="Sueldo / Nómina", key="sueldo"),
+                    ft.dropdown.Option(text="Ventas / Negocio", key="ventas"),
+                    ft.dropdown.Option(text="Inversiones", key="inversiones"),
+                    ft.dropdown.Option(text="Otros Ingresos", key="otros_ingresos")
+                ]
+                dd_categoria.value = "capital_inicial"
+            else:
+                try:
+                    res = supabase.table("categorias").select("*").eq("user_id", page.user_id).execute()
+                    opciones = [ft.dropdown.Option(text=c["nombre"].capitalize(), key=str(c["id"])) for c in res.data]
+                    if not opciones:
+                        opciones.append(ft.dropdown.Option(text="General", key="1"))
+                    dd_categoria.options = opciones
+                    dd_categoria.value = opciones[0].key
+                except Exception:
+                    dd_categoria.options = [ft.dropdown.Option(text="General", key="1")]
+                    dd_categoria.value = "1"
+
+        cargar_opciones_categoria(form_tipo)
+        if registro_editar:
+            dd_categoria.value = str(registro_editar.get("categoria_id", "")) if form_tipo == "gasto" else registro_editar.get("categoria_nombre_ingreso", "")
+
+        def on_tipo_change(e):
+            nuevo_tipo = next(iter(e.control.selected))
+            nonlocal form_tipo
+            form_tipo = nuevo_tipo
+            cargar_opciones_categoria(nuevo_tipo)
+            txt_concepto.label = "Concepto" if nuevo_tipo == "gasto" else "Origen del ingreso"
+            page.update()
+
+        toggle_tipo.on_change = on_tipo_change
+
+        def guardar_click(e):
+            concepto = txt_concepto.value.strip()
+            monto_str = txt_monto.value.strip()
+            if not concepto:
+                mostrar_snackbar(page, "El concepto es obligatorio.", colors["error"])
+                return
+            try:
+                monto_num = float(monto_str)
+                if monto_num <= 0:
+                    mostrar_snackbar(page, "El monto debe ser mayor a cero.", colors["error"])
+                    return
+            except ValueError:
+                mostrar_snackbar(page, "Ingresa un monto numérico válido.", colors["error"])
+                return
+
+            datos = {"monto": monto_num, "nombre": concepto, "tipo": form_tipo, "user_id": page.user_id}
+            if form_tipo == "gasto":
+                datos["categoria_id"] = int(dd_categoria.value) if dd_categoria.value.isdigit() else None
+            else:
+                datos["categoria_nombre_ingreso"] = dd_categoria.value
+
+            async def _guardar():
+                try:
+                    if registro_editar:
+                        supabase.table("gastos").update(datos).eq("id", registro_editar["id"]).execute()
+                        mostrar_snackbar(page, "Movimiento actualizado con éxito.", colors["success"])
+                    else:
+                        supabase.table("gastos").insert(datos).execute()
+                        mostrar_snackbar(page, "Movimiento creado correctamente.", colors["success"])
+                    bs.open = False
+                    page.update()
+                    refrescar_lista()
+                    global _cache_dashboard
+                    _cache_dashboard["timestamp"] = 0
+                except Exception as ex:
+                    if "row-level security" in str(ex).lower() or "permission denied" in str(ex).lower():
+                        mostrar_snackbar(page, "Límite gratuito alcanzado. Activa tu licencia.", colors["error"])
+                        asyncio.ensure_future(verificar_estado_limite())
+                    else:
+                        mostrar_snackbar(page, f"Error al guardar: {ex}", colors["error"])
+
+            asyncio.ensure_future(_guardar())
+
+        bs = ft.BottomSheet(
+            content=ft.Container(
+                content=ft.Column([
+                    ft.Text("Editar Movimiento" if registro_editar else "Nuevo Movimiento", size=20, weight="bold"),
+                    toggle_tipo, txt_concepto, dd_categoria, txt_monto,
+                    ft.FilledButton("Guardar", on_click=lambda e: safe_call(guardar_click, e)()),
+                ], spacing=15, tight=True),
+                padding=20, bgcolor=colors["surface"],
+                border_radius=ft.BorderRadius(top_left=16, top_right=16, bottom_left=0, bottom_right=0)
+            ),
+            open=True,
+        )
+        page.overlay.append(bs)
+        page.update()
+
+    def editar_transaccion(registro):
+        abrir_formulario(registro_editar=registro)
+
+    def confirmar_eliminar(registro):
+        def eliminar_click(e):
+            try:
+                supabase.table("gastos").delete().eq("id", registro["id"]).execute()
+                mostrar_snackbar(page, "Movimiento eliminado.", colors["success"])
+                dlg.open = False
+                page.update()
+                refrescar_lista()
+                global _cache_dashboard
+                _cache_dashboard["timestamp"] = 0
+            except Exception as ex:
+                mostrar_snackbar(page, f"Error al eliminar: {ex}", colors["error"])
+
+        dlg = ft.AlertDialog(
+            title=ft.Text("Confirmar eliminación"),
+            content=ft.Text(f"¿Eliminar '{registro.get('nombre', 'sin nombre')}'?"),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda e: close_dialog(page)),
+                ft.TextButton("Eliminar", on_click=lambda e: safe_call(eliminar_click, e)()),
+            ],
+        )
+        page.dialog = dlg
+        dlg.open = True
+        page.update()
+
+    columna_principal.controls.append(
+        ft.Column([
+            ft.Row([
+                ft.Text("Tus Movimientos", size=24, weight="bold", color=colors["primary"]),
+                ft.FloatingActionButton(icon=ft.Icons.ADD, bgcolor=colors["primary"], on_click=lambda e: safe_call(abrir_formulario)())
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            banner_limite,
+            ft.Divider(height=10, color="transparent"),
+            lista_movimientos
+        ], expand=True, scroll=ft.ScrollMode.AUTO)
+    )
+    cargar_mapa_categorias()
+    refrescar_lista()
+    asyncio.ensure_future(verificar_estado_limite())
+    page.update()
+
+# ==================== PRESUPUESTOS ====================
+def ir_a_presupuestos(page: ft.Page):
+    global columna_principal, supabase
+    cancelar_timer_dashboard()
+    colors = AppColors.get(page.theme_mode)
+    columna_principal.controls.clear()
+
+    lista_presupuestos = ft.Column(spacing=10, scroll=ft.ScrollMode.AUTO)
+    
+    def refrescar_presupuestos():
+        lista_presupuestos.controls.clear()
+        try:
+            cats = supabase.table("categorias").select("*").eq("user_id", page.user_id).execute()
+            pres = supabase.table("presupuestos").select("*").eq("user_id", page.user_id).execute()
+            limites = {str(p["categoria_id"]): p for p in (pres.data or [])}
+            
+            for cat in (cats.data or []):
+                cat_id = str(cat["id"])
+                nombre = cat["nombre"].capitalize()
+                limite_actual = limites.get(cat_id, {}).get("limite", 0.0)
+                pres_id = limites.get(cat_id, {}).get("id")
+                
+                txt_limite = ft.TextField(value=str(limite_actual) if limite_actual else "",
+                                          keyboard_type=ft.KeyboardType.NUMBER, width=100, text_align=ft.TextAlign.END,
+                                          border_color=colors["primary"])
+                
+                def guardar_limite(e, cid=cat_id, pid=pres_id, txt=txt_limite):
+                    try:
+                        nuevo_limite = float(txt.value.strip()) if txt.value.strip() else 0.0
+                    except ValueError:
+                        mostrar_snackbar(page, "Ingresa un número válido.", colors["error"])
+                        return
+                    try:
+                        if pid:
+                            supabase.table("presupuestos").update({"limite": nuevo_limite}).eq("id", pid).execute()
+                        else:
+                            supabase.table("presupuestos").insert({"categoria_id": int(cid), "limite": nuevo_limite, "user_id": page.user_id}).execute()
+                        mostrar_snackbar(page, f"Presupuesto de {nombre} actualizado.", colors["success"])
+                        refrescar_presupuestos()
+                        global _cache_dashboard
+                        _cache_dashboard["timestamp"] = 0
+                    except Exception as ex:
+                        mostrar_snackbar(page, f"Error: {ex}", colors["error"])
+                
+                lista_presupuestos.controls.append(
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Text(nombre, size=14, weight="bold", color=colors["text"], expand=True),
+                            ft.Text("$", size=14, color=colors["text_secondary"]),
+                            txt_limite,
+                            ft.IconButton(icon=ft.Icons.SAVE, icon_color=colors["primary"], tooltip="Guardar",
+                                          on_click=lambda e, cid=cat_id, pid=pres_id, txt=txt_limite: safe_call(guardar_limite, None, cid, pid, txt)())
+                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                        bgcolor=colors["surface"], padding=10, border_radius=8
+                    )
+                )
+        except Exception as ex:
+            lista_presupuestos.controls.append(ft.Text(f"Error: {ex}", color=colors["error"]))
+        page.update()
+    
+    columna_principal.controls.append(
+        ft.Column([
+            ft.Row([ft.IconButton(icon=ft.Icons.ARROW_BACK, icon_color=colors["primary"], on_click=lambda e: safe_call(ejecutar_vista_dashboard, page)()),
+                    ft.Text("Presupuestos Mensuales", size=24, weight="bold", color=colors["primary"])],
+                   alignment=ft.MainAxisAlignment.START),
+            ft.Text("Define límites por categoría para controlar tus gastos.", color=colors["text_secondary"]),
+            ft.Divider(height=10, color="transparent"),
+            lista_presupuestos
+        ], scroll=ft.ScrollMode.AUTO, expand=True)
+    )
+    refrescar_presupuestos()
+
+# ==================== PERFIL DE USUARIO ====================
+def ir_a_perfil(page: ft.Page):
+    global columna_principal, supabase
+    cancelar_timer_dashboard()
+    colors = AppColors.get(page.theme_mode)
+    columna_principal.controls.clear()
+    
+    try:
+        user = supabase.auth.get_user()
+        email = user.user.email if user and user.user else "No disponible"
+    except Exception:
+        email = "Error al obtener usuario"
+    
+    total_movimientos = 0
+    try:
+        res = supabase.table("gastos").select("count", count="exact").eq("user_id", page.user_id).execute()
+        total_movimientos = res.count or 0
+    except Exception:
+        pass
+
+    lbl_plan = ft.Text("Plan: ...", size=12, color=colors["text_secondary"])
+    
+    async def cargar_plan_perfil():
+        plan = await obtener_plan(page)
+        lbl_plan.value = f"Plan: {'Premium' if plan == 'paid' else 'Gratuito'}"
+        page.update()
+    
+    asyncio.ensure_future(cargar_plan_perfil())
+
+    txt_pin_nuevo = ft.TextField(label="Nuevo PIN (4 dígitos)", password=True,
+                                 keyboard_type=ft.KeyboardType.NUMBER, max_length=4,
+                                 border_color=colors["primary"], color=colors["text"])
+    
+    def cambiar_pin(e):
+        nuevo = txt_pin_nuevo.value.strip()
+        if len(nuevo) != 4:
+            mostrar_snackbar(page, "El PIN debe tener 4 dígitos.", colors["error"])
+            return
+        save_pin_hash(nuevo)
+        mostrar_snackbar(page, "PIN actualizado correctamente.", colors["success"])
+        txt_pin_nuevo.value = ""
+        page.update()
+
+    columna_principal.controls.append(
+        ft.Column([
+            ft.Row([ft.IconButton(icon=ft.Icons.ARROW_BACK, icon_color=colors["primary"], on_click=lambda e: safe_call(ejecutar_vista_dashboard, page)()),
+                    ft.Text("Perfil", size=24, weight="bold", color=colors["primary"])],
+                   alignment=ft.MainAxisAlignment.START),
+            ft.Divider(height=20, color="transparent"),
+            ft.Container(
+                content=ft.Column([
+                    ft.Icon(ft.Icons.ACCOUNT_CIRCLE, size=60, color=colors["primary"]),
+                    ft.Text(email, size=14, color=colors["text"], weight="bold"),
+                    ft.Text(f"Total de movimientos: {total_movimientos}", size=12, color=colors["text_secondary"]),
+                    ft.Row([
+                        ft.Icon(ft.Icons.CLOUD_SYNC, color=ft.Colors.GREEN_400, size=12),
+                        ft.Text("Sincronizado en todos tus dispositivos", size=11, color=ft.Colors.GREEN_400, italic=True)
+                    ], spacing=3),
+                    lbl_plan,
+                    ft.Text("© 2026 Armando Hernández Vega. Todos los derechos reservados.", size=10, color=colors["text_secondary"], italic=True),
+                    ft.Text("Soporte: ahernandezvega907@gmail.com]", size=10, color=colors["text_secondary"]),
+                    ft.TextButton("Activar Licencia", on_click=lambda e: safe_call(mostrar_dialogo_activacion, page)())
+                ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                padding=20, bgcolor=colors["surface"], border_radius=16
+            ),
+            ft.Divider(height=20, color="transparent"),
+            ft.Text("Cambiar PIN", size=18, weight="bold", color=colors["primary"]),
+            ft.Text("Por seguridad, usa 4 dígitos.", size=12, color=colors["text_secondary"]),
+            ft.Row([txt_pin_nuevo, ft.FilledButton("Actualizar", on_click=lambda e: safe_call(cambiar_pin, e)())],
+                   alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            ft.Divider(height=20, color="transparent"),
+            ft.FilledButton("Cerrar Sesión", on_click=lambda e: safe_call(cerrar_sesion_action, page)(),
+                            style=ft.ButtonStyle(bgcolor=colors["error"], color="white"))
+        ], scroll=ft.ScrollMode.AUTO, expand=True)
     )
     page.update()
 
-def cambiar_pin(page):
-    colors = AppColors.get(page.theme_mode)
-    
-    old_pin = ft.TextField(label="PIN actual", password=True, max_length=4, width=150, text_align=ft.TextAlign.CENTER)
-    new_pin_input = ft.TextField(label="Nuevo PIN", password=True, max_length=4, width=150, text_align=ft.TextAlign.CENTER)
-    confirm_pin_input = ft.TextField(label="Confirmar PIN", password=True, max_length=4, width=150, text_align=ft.TextAlign.CENTER)
-    error_old = ft.Text("", color=colors["error"])
-    error_new = ft.Text("", color=colors["error"])
+# ==================== ESTADÍSTICAS Y EXPORTACIÓN ====================
+def ejecutar_vista_estadisticas_segura(page_ref: ft.Page):
+    cancelar_timer_dashboard()
+    colors = AppColors.get(page_ref.theme_mode)
+    grafico_container = ft.Container(height=220)          # pastel
+    barras_container = ft.Container(height=220)           # barras
+    lista_leyendas = ft.Column(spacing=8)
+    historial_column = ft.Column(spacing=10, scroll=ft.ScrollMode.AUTO, expand=True)
+    txt_total_analizado = ft.Text("Total analizado: $0.00", color="grey")
+    gastos_locales = []
 
-    dlg_content = ft.Column([old_pin, error_old])
-    dlg = ft.AlertDialog(
-        title=ft.Text("Cambiar PIN"),
-        content=dlg_content,
-        actions=[
-            ft.TextButton("Verificar", on_click=lambda e: verificar_viejo()),
-            ft.TextButton("Cancelar", on_click=lambda e: close_dialog(page, dlg)),
-        ],
-        actions_alignment=ft.MainAxisAlignment.END,
+    # ---------- Botones de exportación (corregidos) ----------
+    btn_csv = ft.FilledButton(
+        content=ft.Text("Exportar CSV"),
+        icon=ft.Icons.DOWNLOAD_ROUNDED,
+        style=ft.ButtonStyle(bgcolor=colors["surface"]),
+        on_click=lambda e: safe_call(exportar_a_csv, e)
+    )
+    btn_excel = ft.FilledButton(
+        content=ft.Text("Exportar Excel"),
+        icon=ft.Icons.TABLE_CHART,
+        style=ft.ButtonStyle(bgcolor=colors["surface"]),
+        visible=False,
+        on_click=lambda e: safe_call(exportar_a_excel, e)
+    )
+    btn_pdf = ft.FilledButton(
+        content=ft.Text("Exportar PDF"),
+        icon=ft.Icons.PICTURE_AS_PDF,
+        style=ft.ButtonStyle(bgcolor=colors["surface"]),
+        visible=False,
+        on_click=lambda e: safe_call(exportar_a_pdf, e)
     )
 
-    def verificar_viejo():
-        old = old_pin.value.strip()
-        saved_hash = load_pin_hash()
-        if saved_hash and hash_pin(old) != saved_hash:
-            error_old.value = "PIN actual incorrecto"
-            page.update()
+    async def configurar_botones_exportacion():
+        plan = await obtener_plan(page_ref)
+        es_premium = (plan == "paid")
+        btn_excel.visible = es_premium
+        btn_pdf.visible = es_premium
+        page_ref.update()
+
+    asyncio.ensure_future(configurar_botones_exportacion())
+
+    # ---------- Funciones de exportación ----------
+    def exportar_a_csv(e):
+        if not gastos_locales:
+            mostrar_snackbar(page_ref, "No hay datos disponibles para exportar.", colors["error"])
             return
-        dlg_content.controls.clear()
-        dlg_content.controls.append(new_pin_input)
-        dlg_content.controls.append(confirm_pin_input)
-        dlg_content.controls.append(error_new)
-        dlg.actions = [
-            ft.TextButton("Guardar", on_click=lambda e: guardar_nuevo()),
-            ft.TextButton("Cancelar", on_click=lambda e: close_dialog(page, dlg)),
-        ]
-        page.update()
-
-    def guardar_nuevo():
-        new1 = new_pin_input.value.strip()
-        new2 = confirm_pin_input.value.strip()
-        if not new1 or len(new1) != 4 or new1 != new2:
-            error_new.value = "El PIN debe ser de 4 dígitos y coincidir"
-            page.update()
-            return
-        save_pin_hash(new1)
-        close_dialog(page, dlg)
-        mostrar_snackbar(page, "PIN actualizado correctamente", colors["success"])
-
-    page.show_dialog(dlg)
-
-# ==================== PANTALLA DE LOGIN ====================
-def login_view(page: ft.Page):
-    page.clean()
-    colors = AppColors.get(page.theme_mode)
-    page.bgcolor = colors["bg"]
-    page.padding = 20
-
-    email_input = ft.TextField(label="Email", border_radius=16, bgcolor=colors["surface"], color=colors["text"])
-    password_input = ft.TextField(label="Contraseña", password=True, border_radius=16, bgcolor=colors["surface"], color=colors["text"])
-    error_text = ft.Text("", color=colors["error"])
-
-    def do_login(e):
         try:
-            res = supabase.auth.sign_in_with_password({"email": email_input.value, "password": password_input.value})
-            page.user_id = res.user.id
-            page.user_email = res.user.email
-            solicitar_pin(page, lambda: main_app(page))
+            nombre_archivo = "moneyflow_gastos.csv"
+            with open(nombre_archivo, mode="w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(["Fecha", "Concepto", "Categoria", "Monto ($)"])
+                for g in gastos_locales:
+                    writer.writerow([
+                        g.get("created_at") or "N/A",
+                        g.get("nombre", "Gasto"),
+                        g.get("categoria_id") or "General",
+                        f"{float(g.get('monto', 0)):.2f}"
+                    ])
+            mostrar_snackbar(page_ref, f"📥 CSV exportado con éxito a {nombre_archivo}!", colors["success"])
         except Exception as ex:
-            error_text.value = f"Error: {str(ex)[:100]}"
-            page.update()
+            mostrar_snackbar(page_ref, f"Error al exportar CSV: {ex}", colors["error"])
 
-    def do_register(e):
+    def exportar_a_excel(e):
+        if not gastos_locales:
+            mostrar_snackbar(page_ref, "No hay datos disponibles para exportar.", colors["error"])
+            return
         try:
-            res = supabase.auth.sign_up({"email": email_input.value, "password": password_input.value})
-            if res.user:
-                user_id = res.user.id
-                default_cats = supabase.table("categorias").select("*").eq("user_id", "00000000-0000-0000-0000-000000000001").execute()
-                if default_cats.data:
-                    for cat in default_cats.data:
-                        supabase.table("categorias").insert({
-                            "nombre": cat["nombre"],
-                            "icono": cat["icono"],
-                            "user_id": user_id
-                        }).execute()
-                mostrar_snackbar(page, "Usuario registrado. Ahora inicia sesión.", colors["success"])
-                email_input.value = ""
-                password_input.value = ""
-                error_text.value = ""
-            else:
-                error_text.value = "Error al registrar. Intenta con otro email."
+            import openpyxl
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "Gastos"
+            ws.append(["Fecha", "Concepto", "Categoria", "Monto ($)"])
+            for g in gastos_locales:
+                ws.append([
+                    g.get("created_at") or "N/A",
+                    g.get("nombre", "Gasto"),
+                    g.get("categoria_id") or "General",
+                    float(g.get("monto", 0))
+                ])
+            nombre_archivo = "moneyflow_gastos.xlsx"
+            wb.save(nombre_archivo)
+            mostrar_snackbar(page_ref, f"📥 Excel exportado con éxito a {nombre_archivo}!", colors["success"])
+        except ImportError:
+            mostrar_snackbar(page_ref, "Librería openpyxl no instalada. Contacte al soporte.", colors["error"])
         except Exception as ex:
-            error_text.value = f"Error: {str(ex)[:100]}"
-        page.update()
+            mostrar_snackbar(page_ref, f"Error al exportar Excel: {ex}", colors["error"])
 
-    page.add(
-        ft.Container(
-            content=ft.Column([
-                ft.Text("MoneyFlow", size=32, weight="bold", color=colors["primary"]),
-                ft.Text("Inicia sesión o regístrate", size=14, color=colors["text_secondary"]),
-                ft.Divider(height=20, color=ft.Colors.TRANSPARENT),
-                email_input,
-                password_input,
-                ft.Row([
-                    ft.Button("Iniciar sesión", on_click=do_login, style=ft.ButtonStyle(bgcolor=colors["primary"], color=colors["bg"])),
-                    ft.Button("Registrarse", on_click=do_register, style=ft.ButtonStyle(bgcolor=colors["surface"], color=colors["text"])),
-                ], wrap=True, run_spacing=10, alignment=ft.MainAxisAlignment.CENTER),
-                error_text,
-            ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15),
-            padding=20,
-            expand=True,
-            alignment=ft.Alignment.CENTER
-        )
-    )
-
-# ==================== APLICACIÓN PRINCIPAL ====================
-def main_app(page: ft.Page):
-    if not hasattr(page, "user_id") or not page.user_id:
-        login_view(page)
-        return
-
-    user_id = page.user_id
-    user_email = page.user_email
-    premium = is_premium()
-
-    # ---- PUNTO 7: Carga del tema con soporte para SYSTEM ----
-    saved_theme = None
-    if hasattr(page, "client_storage"):
-        saved_theme = page.client_storage.get("theme_mode")
-    if saved_theme == "SYSTEM":
-        page.theme_mode = ft.ThemeMode.SYSTEM
-    elif saved_theme == "LIGHT":
-        page.theme_mode = ft.ThemeMode.LIGHT
-    elif saved_theme == "DARK":
-        page.theme_mode = ft.ThemeMode.DARK
-    else:
-        page.theme_mode = ft.ThemeMode.DARK
-
-    colors = AppColors.get(page.theme_mode)
-    page.bgcolor = colors["bg"]
-
-    currency = "CRC"
-    if hasattr(page, "client_storage"):
-        currency = page.client_storage.get("currency") or "CRC"
-    currency_symbol = CURRENCY_FORMATS[currency]["symbol"]
-
-    recordatorios_activos = True
-    if hasattr(page, "client_storage"):
-        recordatorios_activos = page.client_storage.get("recordatorios") != "false"
-
-    online = [True]
-    sincronizando = [False]
-
-    categorias = cargar_categorias(user_id)
-    if not categorias:
-        page.add(ft.Text("Error cargando categorías. Revisa conexión.", color=colors["error"]))
-        return
-
-    opciones_categorias = [
-        ft.dropdown.Option(key=str(c["id"]), text=f"{c.get('icono','')}  {c['nombre']}")
-        for c in categorias
-    ]
-
-    input_nombre = ft.TextField(label="¿En qué gastaste?", border_radius=16,
-                                border_color=colors["text_secondary"], focused_border_color=colors["primary"],
-                                bgcolor=colors["surface"], color=colors["text"], expand=True)
-    input_monto = ft.TextField(label="Monto", border_radius=16, border_color=colors["text_secondary"],
-                               focused_border_color=colors["primary"],
-                               prefix=ft.Text(f"{currency_symbol} ", size=14),
-                               bgcolor=colors["surface"], color=colors["text"], expand=True)
-    categoria_dropdown = ft.Dropdown(label="Categoría", options=opciones_categorias,
-                                     value=opciones_categorias[0].key if opciones_categorias else None, expand=True)
-
-    contenedor_historial = ft.Column(scroll=ft.ScrollMode.ALWAYS, expand=True, spacing=12)
-    chat_display = ft.Column(scroll=ft.ScrollMode.ALWAYS, expand=True, spacing=10)
-    chat_display.controls.append(
-        ft.Text("💡 Pregunta al Guru para recibir consejos financieros.", italic=True, color=colors["text_secondary"]))
-    input_chat = ft.TextField(hint_text="Pregunta al Guru...", expand=True, border_radius=30,
-                              border_color=colors["text_secondary"], focused_border_color=colors["primary"],
-                              bgcolor=colors["surface"], color=colors["text"])
-    grafico_container = ft.Container(visible=False, alignment=ft.Alignment.CENTER, padding=10)
-    tendencia_container = ft.Container(visible=False, alignment=ft.Alignment.CENTER, padding=10)
-    presupuestos_grid = ft.Column(spacing=15, scroll=ft.ScrollMode.ALWAYS)
-    dashboard_grid = ft.Column(spacing=15, scroll=ft.ScrollMode.ALWAYS, expand=True)
-    perfil_contenido = ft.Column(spacing=20, scroll=ft.ScrollMode.AUTO, expand=True)
-
-    estado_conexion = ft.Text("⏳ Verificando...", size=12, color=colors["text_secondary"])
-
-    # ==================== NOTIFICACIONES Y RECORDATORIOS ====================
-    def mostrar_notificacion(titulo, mensaje, tipo="info"):
-        if PLYER_OK:
-            try:
-                notification.notify(
-                    title=f"MoneyFlow – {titulo}",
-                    message=mensaje,
-                    app_name="MoneyFlow",
-                    timeout=10
-                )
-            except Exception as e:
-                print("Error notificación nativa:", e)
-        icono = {"info": ft.Icons.NOTIFICATIONS_ACTIVE, "alerta": ft.Icons.WARNING, "error": ft.Icons.ERROR}.get(tipo, ft.Icons.NOTIFICATIONS_ACTIVE)
-        color_fondo = {"info": colors["primary"], "alerta": colors["secondary"], "error": colors["error"]}.get(tipo, colors["primary"])
-        banner = ft.Banner(
-            bgcolor=color_fondo,
-            leading=ft.Icon(icono, color=colors["text"], size=30),
-            content=ft.Text(f"{titulo}: {mensaje}", color=colors["bg"]),
-            actions=[ft.TextButton("OK", on_click=lambda e: page.close(banner))],
-        )
-        page.open(banner)
-        page.update()
-
-    def calcular_proxima_fecha(fecha_actual, frecuencia):
-        if frecuencia == 'unico':
-            return None
-        elif frecuencia == 'semanal':
-            return fecha_actual + relativedelta(weeks=1)
-        elif frecuencia == 'mensual':
-            return fecha_actual + relativedelta(months=1)
-        elif frecuencia == 'anual':
-            return fecha_actual + relativedelta(years=1)
-        return None
-
-    def verificar_alertas_presupuesto():
-        if not recordatorios_activos:
-            return
-        mes_actual = datetime.now().replace(day=1).date().isoformat()
-        for cat in categorias:
-            cat_id = cat["id"]
-            try:
-                pres = supabase.table("presupuestos").select("monto_limite") \
-                    .eq("categoria_id", cat_id).eq("user_id", user_id).eq("mes", mes_actual).execute()
-                if not pres.data:
-                    continue
-                limite = pres.data[0]["monto_limite"]
-                gastos_cat = supabase.table("gastos").select("monto") \
-                    .eq("categoria_id", cat_id).eq("user_id", user_id) \
-                    .gte("created_at", mes_actual).execute()
-                gastado = sum(g["monto"] for g in (gastos_cat.data or []))
-                if limite <= 0:
-                    continue
-                porcentaje = (gastado / limite) * 100
-                if porcentaje >= 100:
-                    mostrar_notificacion(
-                        f"🚨 Presupuesto agotado en {cat['nombre']}",
-                        f"Has gastado {format_currency(gastado, currency)} de {format_currency(limite, currency)}",
-                        "error"
-                    )
-                elif porcentaje >= 80:
-                    mostrar_notificacion(
-                        f"⚠️ {cat['nombre']} al {porcentaje:.0f}%",
-                        f"Quedan {format_currency(limite - gastado, currency)} para el mes",
-                        "alerta"
-                    )
-            except:
-                pass
-
-    def actualizar_racha():
-        hoy = datetime.now().date()
-        try:
-            res = supabase.table("rachas").select("*").eq("user_id", user_id).execute()
-            if res.data:
-                racha = res.data[0]
-                ultima = racha["ultima_fecha"]
-                ultima = datetime.fromisoformat(ultima).date() if ultima else None
-                if ultima == hoy:
-                    return
-                elif ultima == hoy - timedelta(days=1):
-                    nueva_racha = racha["racha_actual"] + 1
-                    racha_max = max(racha["racha_maxima"], nueva_racha)
-                else:
-                    nueva_racha = 1
-                    racha_max = racha["racha_maxima"]
-                supabase.table("rachas").update({
-                    "ultima_fecha": hoy.isoformat(),
-                    "racha_actual": nueva_racha,
-                    "racha_maxima": racha_max
-                }).eq("user_id", user_id).execute()
-                if nueva_racha in (3, 7, 14, 30, 60, 100):
-                    mostrar_notificacion(
-                        "🔥 ¡Racha imparable!",
-                        f"{nueva_racha} días seguidos registrando gastos. ¡Eres increíble!",
-                        "info"
-                    )
-            else:
-                supabase.table("rachas").insert({
-                    "user_id": user_id,
-                    "ultima_fecha": hoy.isoformat(),
-                    "racha_actual": 1,
-                    "racha_maxima": 1
-                }).execute()
-        except Exception as e:
-            print("Error racha:", e)
-
-    def job_revisar():
-        if not recordatorios_activos or not online[0]:
-            return
-        hoy = datetime.now().date()
-        try:
-            res = supabase.table("recordatorios").select("*") \
-                .eq("user_id", user_id) \
-                .eq("activo", True) \
-                .lte("fecha_inicio", hoy.isoformat()) \
-                .execute()
-            for rec in (res.data or []):
-                monto_str = format_currency(rec.get("monto", 0), currency)
-                mostrar_notificacion(
-                    f"🔔 Recordatorio: {rec['titulo']}",
-                    f"Vence hoy. Monto: {monto_str}",
-                    "alerta"
-                )
-                if rec["frecuencia"] != "unico":
-                    nueva = calcular_proxima_fecha(hoy, rec["frecuencia"])
-                    if nueva:
-                        supabase.table("recordatorios").update({"fecha_inicio": nueva.isoformat()}).eq("id", rec["id"]).execute()
-                    else:
-                        supabase.table("recordatorios").update({"activo": False}).eq("id", rec["id"]).execute()
-                else:
-                    supabase.table("recordatorios").update({"activo": False}).eq("id", rec["id"]).execute()
-        except Exception as e:
-            print("Error job recordatorios:", e)
-        verificar_alertas_presupuesto()
-
-    # ==================== FIN NOTIFICACIONES ====================
-
-    def actualizar_estado_conexion():
-        if sincronizando[0]:
-            estado_conexion.value = "⏳ Sincronizando..."
-            estado_conexion.color = colors["text_secondary"]
-        elif online[0]:
-            estado_conexion.value = "🟢 Conectado"
-            estado_conexion.color = colors["success"]
-        else:
-            estado_conexion.value = "🔴 Sin conexión"
-            estado_conexion.color = colors["error"]
-        page.update()
-
-    def sincronizar_datos(silencioso=False):
-        if sincronizando[0]:
-            return
-        sincronizando[0] = True
-        actualizar_estado_conexion()
-        
-        exito = True
-        try:
-            if not verificar_conexion():
-                online[0] = False
-                exito = False
-            else:
-                online[0] = True
-                nonlocal categorias, opciones_categorias
-                categorias = cargar_categorias(user_id)
-                opciones_categorias = [
-                    ft.dropdown.Option(key=str(c["id"]), text=f"{c.get('icono','')}  {c['nombre']}")
-                    for c in categorias
-                ]
-                categoria_dropdown.options = opciones_categorias
-                if opciones_categorias:
-                    categoria_dropdown.value = opciones_categorias[0].key
-                
-                actualizar_lista_visual()
-                if vista_presupuestos.visible:
-                    cargar_presupuestos()
-                if vista_dashboard.visible:
-                    cargar_dashboard()
-
-                if recordatorios_activos:
-                    gastos_hoy = [g for g in cargar_gastos_con_categoria(user_id)
-                                  if g.get("created_at", "").startswith(datetime.now().strftime("%Y-%m-%d"))]
-                    if not gastos_hoy:
-                        mostrar_notificacion("📅 ¡Buenos días!", "No has registrado gastos hoy. ¡Recuerda anotarlos!", "info")
-                verificar_alertas_presupuesto()
-        except Exception as e:
-            online[0] = False
-            exito = False
-        finally:
-            sincronizando[0] = False
-            actualizar_estado_conexion()
-            if not silencioso and exito and online[0]:
-                mostrar_snackbar(page, "✅ Datos sincronizados", colors["success"])
-            elif not silencioso and not online[0]:
-                mostrar_snackbar(page, "❌ Sin conexión a Internet", colors["error"])
-
-    # ==================== EXPORTACIONES ====================
-    def exportar_csv(e):
-        gastos = cargar_gastos_con_categoria(user_id)
-        if not gastos:
-            mostrar_snackbar(page, "No hay gastos para exportar", colors["error"])
-            return
-        output = io.StringIO()
-        writer = csv.writer(output)
-        writer.writerow(["Fecha", "Nombre", "Monto", "Categoría"])
-        for g in gastos:
-            cat = g.get("categorias", {})
-            nombre_cat = cat.get("nombre", "") if isinstance(cat, dict) else ""
-            fecha = g.get("created_at", datetime.now().isoformat())
-            writer.writerow([fecha, g.get("nombre", ""), g.get("monto", 0), nombre_cat])
-        output.seek(0)
-        data_bytes = output.getvalue().encode("utf-8")
-        output.close()
-        guardar_archivo_en_carpeta(page, "gastos.csv", data_bytes, colors=colors)
-
-    def exportar_excel(e):
-        if not premium:
-            mostrar_snackbar(page, "❌ Función Premium", colors["error"])
-            return
-        gastos = cargar_gastos_con_categoria(user_id)
-        if not gastos:
-            mostrar_snackbar(page, "No hay gastos para exportar", colors["error"])
-            return
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "Gastos MoneyFlow"
-        ws.append(["Fecha", "Nombre", "Monto", "Categoría"])
-        for g in gastos:
-            cat = g.get("categorias", {})
-            nombre_cat = cat.get("nombre", "") if isinstance(cat, dict) else ""
-            fecha = g.get("created_at", datetime.now().isoformat())
-            ws.append([fecha, g.get("nombre", ""), g.get("monto", 0), nombre_cat])
-        output = io.BytesIO()
-        wb.save(output)
-        output.seek(0)
-        data_bytes = output.getvalue()
-        output.close()
-        guardar_archivo_en_carpeta(page, "gastos.xlsx", data_bytes, colors=colors)
-
-    def exportar_pdf(e):
-        if not premium:
-            mostrar_snackbar(page, "❌ Función Premium", colors["error"])
-            return
-        gastos = cargar_gastos_con_categoria(user_id)
-        if not gastos:
-            mostrar_snackbar(page, "No hay gastos para exportar", colors["error"])
-            return
-        buffer = io.BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=letter)
-        story = []
-        styles = getSampleStyleSheet()
-        title = Paragraph("Informe de Gastos - MoneyFlow", styles['Title'])
-        story.append(title)
-        story.append(Spacer(1, 0.2 * inch))
-        data = [["Fecha", "Nombre", "Monto", "Categoría"]]
-        total = 0
-        for g in gastos:
-            cat = g.get("categorias", {})
-            nombre_cat = cat.get("nombre", "") if isinstance(cat, dict) else ""
-            fecha = g.get("created_at", datetime.now().isoformat())[:10]
-            monto = g.get("monto", 0)
-            total += monto
-            data.append([fecha, g.get("nombre", ""), format_currency(monto, currency), nombre_cat])
-        data.append(["", "", f"Total: {format_currency(total, currency)}", ""])
-        table = Table(data, colWidths=[1.5 * inch, 2 * inch, 1 * inch, 1.5 * inch])
-        table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), reportlab_colors.grey),
-            ('TEXTCOLOR', (0, 0), (-1, 0), reportlab_colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('BACKGROUND', (0, 1), (-1, -2), reportlab_colors.beige),
-            ('GRID', (0, 0), (-1, -1), 1, reportlab_colors.black),
-        ]))
-        story.append(table)
-        doc.build(story)
-        pdf_bytes = buffer.getvalue()
-        buffer.close()
-        guardar_archivo_en_carpeta(page, "gastos.pdf", pdf_bytes, colors=colors)
-
-    # ==================== BACKUP Y RESTAURACIÓN (PUNTO 8) ====================
-    def exportar_backup(e):
-        if not premium:
-            mostrar_snackbar(page, "❌ Función Premium requerida", colors["error"])
+    def exportar_a_pdf(e):
+        if not gastos_locales:
+            mostrar_snackbar(page_ref, "No hay datos disponibles para exportar.", colors["error"])
             return
         try:
-            backup = {
-                "version": "1.0",
-                "fecha": datetime.now().isoformat(),
-                "categorias": cargar_categorias(user_id),
-                "gastos": cargar_gastos_con_categoria(user_id),
-                "presupuestos": supabase.table("presupuestos").select("*").eq("user_id", user_id).execute().data,
-                "recordatorios": supabase.table("recordatorios").select("*").eq("user_id", user_id).execute().data,
-                "rachas": supabase.table("rachas").select("*").eq("user_id", user_id).execute().data,
-            }
-            json_bytes = json.dumps(backup, indent=2, default=str).encode("utf-8")
-            guardar_archivo_en_carpeta(page, "moneyflow_backup.json", json_bytes, colors=colors)
+            from reportlab.lib.pagesizes import letter
+            from reportlab.pdfgen import canvas
+            nombre_archivo = "moneyflow_gastos.pdf"
+            c = canvas.Canvas(nombre_archivo, pagesize=letter)
+            width, height = letter
+            y = height - 50
+            c.setFont("Helvetica-Bold", 14)
+            c.drawString(50, y, "Reporte de Gastos - MoneyFlow")
+            y -= 30
+            c.setFont("Helvetica", 10)
+            for g in gastos_locales:
+                linea = f"{g.get('created_at','N/A')} | {g.get('nombre','Gasto')} | {g.get('categoria_id','General')} | ${float(g.get('monto',0)):.2f}"
+                c.drawString(50, y, linea)
+                y -= 15
+                if y < 50:
+                    c.showPage()
+                    y = height - 50
+            c.save()
+            mostrar_snackbar(page_ref, f"📥 PDF exportado con éxito a {nombre_archivo}!", colors["success"])
+        except ImportError:
+            mostrar_snackbar(page_ref, "Librería reportlab no instalada. Contacte al soporte.", colors["error"])
         except Exception as ex:
-            mostrar_snackbar(page, f"Error al exportar backup: {ex}", colors["error"])
+            mostrar_snackbar(page_ref, f"Error al exportar PDF: {ex}", colors["error"])
 
-    def importar_backup(e):
-        if not premium:
-            mostrar_snackbar(page, "❌ Función Premium requerida", colors["error"])
-            return
+    def aplicar_filtro_y_renderizar(filtro_seleccionado):
+        nonlocal gastos_locales
+        grafico_container.content = None
+        barras_container.content = None
+        lista_leyendas.controls.clear()
+        historial_column.controls.clear()
+        total_acumulado = 0.0
+        ahora = datetime.now()
+        gastos_filtrados = []
 
-        def seleccionar_archivo():
-            picker = ft.FilePicker()
-            picker.on_result = lambda r: procesar_archivo_backup(r.files[0].path if r.files else None)
-            page.overlay.append(picker)
-            page.update()
-            picker.pick_files(allow_multiple=False, file_type="custom", allowed_extensions=["json"])
+        for g in gastos_locales:
+            if g is None: continue
+            fecha_str = g.get("created_at") or g.get("fecha") or ""
+            try: fecha_gasto = datetime.fromisoformat(fecha_str.replace("Z", "+00:00"))
+            except Exception: fecha_gasto = ahora
 
-        def procesar_archivo_backup(ruta_archivo):
-            if not ruta_archivo:
-                return
-            try:
-                with open(ruta_archivo, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                if not all(k in data for k in ("categorias", "gastos", "presupuestos", "recordatorios", "rachas")):
-                    mostrar_snackbar(page, "Formato de backup inválido", colors["error"])
-                    return
-                for tabla in ["gastos", "presupuestos", "recordatorios", "rachas"]:
-                    supabase.table(tabla).delete().eq("user_id", user_id).execute()
-                supabase.table("categorias").delete().neq("user_id", "00000000-0000-0000-0000-000000000001").eq("user_id", user_id).execute()
-
-                for cat in data["categorias"]:
-                    if cat.get("user_id") != "00000000-0000-0000-0000-000000000001":
-                        supabase.table("categorias").insert(cat).execute()
-                for gasto in data["gastos"]:
-                    supabase.table("gastos").insert(gasto).execute()
-                for pres in data["presupuestos"]:
-                    supabase.table("presupuestos").insert(pres).execute()
-                for rec in data["recordatorios"]:
-                    supabase.table("recordatorios").insert(rec).execute()
-                if data["rachas"]:
-                    supabase.table("rachas").insert(data["rachas"][0]).execute()
-
-                mostrar_snackbar(page, "✅ Backup restaurado con éxito", colors["success"])
-                page.clean()
-                main_app(page)
-            except Exception as ex:
-                mostrar_snackbar(page, f"Error al importar: {ex}", colors["error"])
-
-        dlg = ft.AlertDialog(
-            title=ft.Text("Importar Backup"),
-            content=ft.Text("Selecciona el archivo JSON de backup.\n"
-                            "⚠️ Se reemplazarán todos tus datos actuales."),
-            actions=[
-                ft.TextButton("Seleccionar archivo", on_click=lambda e: seleccionar_archivo()),
-                ft.TextButton("Cancelar", on_click=lambda e: close_dialog(page, dlg)),
-            ],
-            actions_alignment=ft.MainAxisAlignment.END,
-        )
-        page.show_dialog(dlg)
-
-    # ==================== PUNTO 9: LECTURA DE SMS ====================
-    def categorizar_por_sms(texto):
-        texto = texto.lower()
-        if any(p in texto for p in ["super", "mercado", "maxi", "pali", "walmart", "masxmenos"]):
-            return "Supermercado"
-        if any(p in texto for p in ["restaurante", "soda", "bar", "cafe", "comida"]):
-            return "Comida"
-        if any(p in texto for p in ["gasolinera", "gas", "combustible", "servicentro"]):
-            return "Transporte"
-        if any(p in texto for p in ["farmacia", "medicina", "hospital", "clínica"]):
-            return "Salud"
-        if any(p in texto for p in ["cine", "teatro", "concierto", "netflix", "spotify"]):
-            return "Ocio"
-        if any(p in texto for p in ["tienda", "compra", "amazon", "mercado libre"]):
-            return "Compras"
-        if any(p in texto for p in ["luz", "agua", "internet", "cable", "servicio", "electricidad"]):
-            return "Servicios"
-        return "Bancario"
-
-    def extraer_transacciones_sms(lista_mensajes):
-        import re
-        transacciones = []
-        for msg in lista_mensajes:
-            if isinstance(msg, dict):
-                texto = msg.get('body', '')
+            if filtro_seleccionado == "hoy":
+                if fecha_gasto.date() == ahora.date(): gastos_filtrados.append(g)
+            elif filtro_seleccionado == "mes":
+                if fecha_gasto.year == ahora.year and fecha_gasto.month == ahora.month: gastos_filtrados.append(g)
             else:
-                texto = str(msg)
-            matches = re.findall(r'\$?\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{1,2})?', texto)
-            for match in matches:
-                monto_str = match.replace('$', '').replace(',', '')
-                try:
-                    monto = float(monto_str)
-                    if monto <= 0:
-                        continue
-                except:
-                    continue
-                categoria = categorizar_por_sms(texto)
-                transacciones.append({
-                    "monto": monto,
-                    "descripcion": f"SMS: {texto[:50]}",
-                    "categoria_sugerida": categoria,
-                    "texto_original": texto
-                })
-        return transacciones
+                gastos_filtrados.append(g)
 
-    def importar_sms(e):
-        if not premium:
-            mostrar_snackbar(page, "❌ Función Premium", colors["error"])
-            return
+        # Pastel
+        if gastos_filtrados:
+            totales_por_categoria = {}
+            for g in gastos_filtrados:
+                monto_gasto = float(g.get("monto", 0) or 0)
+                if g.get("tipo") != "ingreso":
+                    total_acumulado += monto_gasto
+                    cat = str(g.get("categoria_id") or g.get("categoria") or "Otros").capitalize()
+                    totales_por_categoria[cat] = totales_por_categoria.get(cat, 0.0) + monto_gasto
 
-        if platform.system() == "Android":
-            try:
-                from plyer import sms
-                sms.request()
-                mensajes = sms.get(count=50)
-                trans = extraer_transacciones_sms(mensajes)
-                if trans:
-                    mostrar_dialogo_revision_sms(trans)
-                else:
-                    mostrar_snackbar(page, "No se detectaron transacciones en los SMS", colors["secondary"])
-            except Exception as ex:
-                mostrar_snackbar(page, f"Error al leer SMS: {ex}", colors["error"])
-        else:
-            def procesar_pegado(e):
-                texto = texto_sms.value
-                if not texto.strip():
-                    return
-                lineas = [l.strip() for l in texto.split('\n') if l.strip()]
-                trans = extraer_transacciones_sms(lineas)
-                close_dialog(page, dlg_entrada)
-                if trans:
-                    mostrar_dialogo_revision_sms(trans)
-                else:
-                    mostrar_snackbar(page, "No se detectaron transacciones", colors["secondary"])
-
-            texto_sms = ft.TextField(
-                label="Pega aquí los SMS (uno por línea)",
-                multiline=True,
-                min_lines=4,
-                max_lines=8,
-                hint_text="Banco: Compra en Supermercado X por ₡45,000.00\n...",
-            )
-            dlg_entrada = ft.AlertDialog(
-                title=ft.Text("Importar SMS (escritorio)"),
-                content=ft.Column([texto_sms], scroll=ft.ScrollMode.AUTO),
-                actions=[
-                    ft.TextButton("Procesar", on_click=procesar_pegado),
-                    ft.TextButton("Cancelar", on_click=lambda e: close_dialog(page, dlg_entrada)),
-                ],
-            )
-            page.show_dialog(dlg_entrada)
-
-    def mostrar_dialogo_revision_sms(transacciones):
-        checks = []
-        for i, t in enumerate(transacciones):
-            monto_str = format_currency(t["monto"], currency)
-            check = ft.Checkbox(label=f"{t['categoria_sugerida']}: {t['descripcion']} - {monto_str}", value=True)
-            checks.append(check)
-            check.data = t
-
-        def confirmar_importacion(e):
-            seleccionadas = [c.data for c in checks if c.value]
-            if not seleccionadas:
-                mostrar_snackbar(page, "No seleccionaste ninguna transacción", colors["error"])
-                return
-            cats_existentes = {cat["nombre"].lower(): cat for cat in categorias}
-            for t in seleccionadas:
-                nombre_cat = t["categoria_sugerida"]
-                cat = cats_existentes.get(nombre_cat.lower())
-                if not cat:
-                    res = agregar_categoria(nombre_cat, "📦", user_id)
-                    if res.data:
-                        cat = res.data[0]
-                        cats_existentes[nombre_cat.lower()] = cat
-                        categorias.append(cat)
-                if cat:
-                    supabase.table("gastos").insert({
-                        "nombre": t["descripcion"][:50],
-                        "monto": t["monto"],
-                        "categoria_id": cat["id"],
-                        "user_id": user_id
-                    }).execute()
-            close_dialog(page, dlg_revision)
-            mostrar_snackbar(page, f"✅ {len(seleccionadas)} gastos importados", colors["success"])
-            actualizar_lista_visual()
-
-        dlg_revision = ft.AlertDialog(
-            title=ft.Text("Revisar transacciones detectadas"),
-            content=ft.Column(checks, scroll=ft.ScrollMode.AUTO, expand=True),
-            actions=[
-                ft.TextButton("Importar seleccionados", on_click=confirmar_importacion),
-                ft.TextButton("Cancelar", on_click=lambda e: close_dialog(page, dlg_revision)),
-            ],
-        )
-        page.show_dialog(dlg_revision)
-
-    # ==================== PERFIL DE USUARIO (PUNTO 10) ====================
-    def cargar_perfil():
-        perfil_contenido.controls.clear()
-        try:
-            user = supabase.auth.get_user()
-            metadata = user.user.user_metadata if user.user.user_metadata else {}
-            nombre = metadata.get("full_name", "")
-            avatar_url = metadata.get("avatar_url", "")
-        except Exception as e:
-            nombre = ""
-            avatar_url = ""
-
-        if avatar_url:
-            avatar = ft.CircleAvatar(
-                foreground_image_url=avatar_url,
-                radius=50,
-                bgcolor=colors["primary"],
-            )
-        else:
-            avatar = ft.CircleAvatar(
-                content=ft.Text(nombre[:1].upper() if nombre else user_email[:1].upper(), size=32, color=colors["bg"]),
-                radius=50,
-                bgcolor=colors["primary"],
-            )
-
-        nombre_input = ft.TextField(label="Nombre completo", value=nombre, expand=True, border_radius=16,
-                                    bgcolor=colors["surface"], color=colors["text"])
-
-        def seleccionar_avatar(e):
-            picker = ft.FilePicker()
-            picker.on_result = lambda r: subir_avatar_desde_picker(r)
-            page.overlay.append(picker)
-            page.update()
-            picker.pick_files(allow_multiple=False, file_type="image")
-
-        def subir_avatar_desde_picker(resultado):
-            if resultado.files:
-                archivo = resultado.files[0].path
-                subir_avatar_desde_ruta(archivo)
-
-        def subir_avatar_desde_ruta(ruta_archivo):
-            try:
-                with open(ruta_archivo, "rb") as f:
-                    supabase.storage.from_("avatars").upload(
-                        f"{user_id}.jpg", f.read(), {"content-type": "image/jpeg"}
-                    )
-                avatar_url = supabase.storage.from_("avatars").get_public_url(f"{user_id}.jpg")
-                supabase.auth.update_user({"data": {"avatar_url": avatar_url}})
-                cargar_perfil()
-                mostrar_snackbar(page, "Avatar actualizado", colors["success"])
-            except Exception as ex:
-                mostrar_snackbar(page, f"Error al subir avatar: {ex}", colors["error"])
-
-       # 1. Declaramos la variable vacía arriba para que AMBAS funciones la conozcan
-        dlg_password = None
-
-        def cambiar_password(e):
-            nonlocal dlg_password # Le avisamos a Python que use la variable que declaramos afuera
-            
-            dlg_password = ft.AlertDialog(
-                title=ft.Text("Cambiar contraseña"),
-                content=ft.Column([
-                    ft.TextField(label="Nueva contraseña", password=True, border_radius=16, bgcolor=colors["surface"], color=colors["text"]),
-                    ft.TextField(label="Confirmar contraseña", password=True, border_radius=16, bgcolor=colors["surface"], color=colors["text"]),
-                ]),
-                actions=[
-                    ft.TextButton("Guardar", on_click=lambda e: actualizar_password(e)),
-                    ft.TextButton("Cancelar", on_click=lambda e: close_dialog(page, dlg_password)),
-                ],
-            )
-            page.show_dialog(dlg_password)
-
-        def actualizar_password(e):
-            # Ahora esta función sí puede encontrar a 'dlg_password' sin problemas
-            if dlg_password and dlg_password.content:
-                nuevos = dlg_password.content.controls
-                new_pass = nuevos[0].value
-                confirm_pass = nuevos[1].value
-                
-                if not new_pass or new_pass != confirm_pass:
-                    mostrar_snackbar(page, "Las contraseñas no coinciden", colors["error"])
-                    return
-                try:
-                    supabase.auth.update_user({"password": new_pass})
-                    close_dialog(page, dlg_password)
-                    mostrar_snackbar(page, "Contraseña actualizada", colors["success"])
-                except Exception as ex:
-                    mostrar_snackbar(page, f"Error: {ex}", colors["error"])
-
-        def guardar_perfil(e):
-            nuevo_nombre = nombre_input.value.strip()
-            metadata_update = {"full_name": nuevo_nombre}
-            try:
-                supabase.auth.update_user({"data": metadata_update})
-                mostrar_snackbar(page, "Perfil actualizado", colors["success"])
-                cargar_perfil()
-            except Exception as ex:
-                mostrar_snackbar(page, f"Error: {ex}", colors["error"])
-
-        perfil_contenido.controls.extend([
-            ft.Row([avatar, ft.TextButton("Cambiar foto", on_click=seleccionar_avatar)], alignment=ft.MainAxisAlignment.CENTER),
-            ft.Divider(),
-            ft.Text("Información personal", size=18, weight="bold", color=colors["text"]),
-            nombre_input,
-            ft.Text(f"Email: {user_email}", color=colors["text_secondary"]),
-            ft.Row([
-                ft.FilledButton("Guardar cambios", on_click=guardar_perfil, icon=ft.Icons.SAVE),
-                ft.OutlinedButton("Cambiar contraseña", on_click=cambiar_password, icon=ft.Icons.LOCK),
-            ], wrap=True, spacing=10),
-            ft.Divider(),
-            ft.Text("Estado de la cuenta", size=18, weight="bold", color=colors["text"]),
-            ft.Row([
-                ft.Icon(ft.Icons.STAR if premium else ft.Icons.STAR_BORDER, color=colors["primary"] if premium else colors["text_secondary"]),
-                ft.Text("Premium" if premium else "Gratuito", size=16, color=colors["primary"] if premium else colors["text_secondary"]),
-                ft.TextButton("Adquirir Premium" if not premium else "Activado", on_click=lambda e: mostrar_snackbar(page, "Función no disponible aún", colors["secondary"])) if not premium else ft.Text(""),
-            ]),
-            ft.Divider(),
-            ft.Text("Configuración", size=18, weight="bold", color=colors["text"]),
-            ft.ListTile(
-                leading=ft.Icon(ft.Icons.SETTINGS),
-                title=ft.Text("Abrir configuración"),
-                on_click=lambda e: abrir_configuracion(e),
-            ),
-            ft.ListTile(
-                leading=ft.Icon(ft.Icons.LOGOUT),
-                title=ft.Text("Cerrar sesión"),
-                on_click=logout,
-            ),
-        ])
-        page.update()
-
-    # ==================== PRESUPUESTOS ====================
-    def cargar_presupuestos():
-        presupuestos_grid.controls.clear()
-        cats = cargar_categorias(user_id)
-        if not cats:
-            return
-        mes_actual = datetime.now().replace(day=1).date().isoformat()
-        try:
-            res = supabase.table("presupuestos").select("*").eq("mes", mes_actual).eq("user_id", user_id).execute()
-            presupuestos_dict = {p["categoria_id"]: p["monto_limite"] for p in res.data}
-        except:
-            presupuestos_dict = {}
-        for cat in cats:
-            cat_id = cat["id"]
-            try:
-                gastos_res = supabase.table("gastos").select("monto").eq("categoria_id", cat_id).eq("user_id", user_id)\
-                    .gte("created_at", f"{mes_actual}T00:00:00").lt("created_at", f"{mes_actual}T00:00:00 + 1 month").execute()
-                gastado = sum(g["monto"] for g in gastos_res.data) if gastos_res.data else 0
-            except:
-                gastado = 0
-            limite = presupuestos_dict.get(cat_id, 0)
-            progress = gastado / limite if limite > 0 else 0
-            emoji = cat.get("icono", "")
-            row = ft.Container(
-                bgcolor=colors["surface"],
-                border_radius=16,
-                padding=10,
-                content=ft.Column([
-                    ft.Row([
-                        ft.Text(f"{emoji} ", size=18),
-                        ft.Text(cat["nombre"], size=16, weight="bold", expand=True, color=colors["text"]),
-                        ft.Text(f"{format_currency(gastado, currency)} / {format_currency(limite, currency)}",
-                                size=14, color=colors["success"] if gastado <= limite else colors["error"]),
-                    ]),
-                    ft.ProgressBar(value=min(progress, 1.0), width=400,
-                                   color=colors["primary"] if progress <= 1 else colors["error"], bgcolor="#333333"),
-                    ft.Row([ft.TextButton("Editar", on_click=lambda e, cid=cat_id, lim=limite: abrir_editor_presupuesto(cid, lim))],
-                           alignment=ft.MainAxisAlignment.END),
-                ])
-            )
-            presupuestos_grid.controls.append(row)
-        page.update()
-
-    def abrir_editor_presupuesto(categoria_id, limite_actual):
-        input_limite = ft.TextField(label="Monto límite mensual", value=str(limite_actual) if limite_actual else "",
-                                    prefix=ft.Text(currency_symbol), width=200)
-        def guardar(e):
-            try:
-                nuevo_limite = float(input_limite.value)
-            except:
-                mostrar_snackbar(page, "Ingresa un número válido", colors["error"])
-                return
-            if nuevo_limite <= 0:
-                mostrar_snackbar(page, "El monto debe ser mayor a 0", colors["error"])
-                return
-            mes_actual = datetime.now().replace(day=1).date().isoformat()
-            try:
-                supabase.table("presupuestos").upsert({
-                    "categoria_id": categoria_id,
-                    "monto_limite": nuevo_limite,
-                    "mes": mes_actual,
-                    "user_id": user_id
-                }, on_conflict="categoria_id,mes,user_id").execute()
-                mostrar_snackbar(page, "Presupuesto actualizado", colors["success"])
-                cargar_presupuestos()
-                close_dialog(page, dlg)
-                page.update()
-            except Exception as ex:
-                mostrar_snackbar(page, f"Error: {ex}", colors["error"])
-        dlg = ft.AlertDialog(
-            title=ft.Text("Editar presupuesto"),
-            content=input_limite,
-            actions=[ft.TextButton("Guardar", on_click=guardar), ft.TextButton("Cancelar", on_click=lambda e: close_dialog(page, dlg))],
-            actions_alignment=ft.MainAxisAlignment.END,
-        )
-        page.show_dialog(dlg)
-
-    # ==================== DASHBOARD ====================
-    def cargar_dashboard():
-        dashboard_grid.controls.clear()
-        gastos = cargar_gastos_con_categoria(user_id)
-        hoy = datetime.now().date()
-        mes_date = hoy.replace(day=1)
-        mes_str = mes_date.isoformat()
-
-        gastos_mes = [g for g in gastos if g.get("created_at", "").startswith(mes_str)]
-        total_gastado = sum(g["monto"] for g in gastos_mes)
-
-        try:
-            res = supabase.table("presupuestos").select("*, categorias(nombre, icono)").eq("mes", mes_str).eq("user_id", user_id).execute()
-            presupuestos = res.data if res.data else []
-        except:
-            presupuestos = []
-        total_presupuestado = sum(p["monto_limite"] for p in presupuestos)
-
-        if mes_date.month == 12:
-            siguiente_mes = mes_date.replace(year=mes_date.year + 1, month=1)
-        else:
-            siguiente_mes = mes_date.replace(month=mes_date.month + 1)
-        dias_totales = (siguiente_mes - mes_date).days
-        dia_actual = min((hoy - mes_date).days + 1, dias_totales)
-        gasto_promedio_diario = total_gastado / dia_actual if dia_actual > 0 else 0
-
-        gastos_por_cat = defaultdict(float)
-        iconos_por_cat = {}
-        for g in gastos_mes:
-            cat = g.get("categorias", {})
-            nombre = cat.get("nombre", "Sin categoría") if isinstance(cat, dict) else "Sin categoría"
-            icono = cat.get("icono", "") if isinstance(cat, dict) else ""
-            gastos_por_cat[nombre] += g.get("monto", 0)
-            iconos_por_cat[nombre] = icono
-        cat_top = max(gastos_por_cat.items(), key=lambda x: x[1]) if gastos_por_cat else ("Ninguna", 0)
-
-        progress = total_gastado / total_presupuestado if total_presupuestado > 0 else 0
-        saldo = total_presupuestado - total_gastado
-
-        dashboard_grid.controls.append(
-            ft.Container(
-                bgcolor=colors["surface"], border_radius=16, padding=15,
-                content=ft.Column([
-                    ft.Text("📌 Consejo del día", size=14, weight="bold", color=colors["primary"]),
-                    ft.Text(consejo_del_dia(), size=13, color=colors["text"], italic=True),
-                ])
-            )
-        )
-
-        try:
-            racha_res = supabase.table("rachas").select("racha_actual").eq("user_id", user_id).execute()
-            racha_hoy = racha_res.data[0]["racha_actual"] if racha_res.data else 0
-        except:
-            racha_hoy = 0
-        dashboard_grid.controls.append(
-            ft.Container(
-                bgcolor=colors["surface"], border_radius=16, padding=20,
-                content=ft.Column([
-                    ft.Text("🔥 Racha actual", size=14, color=colors["text_secondary"]),
-                    ft.Text(f"{racha_hoy} días", size=28, weight="bold", color=colors["primary"]),
-                    ft.Text("¡Sigue registrando gastos!", size=12, color=colors["text_secondary"]),
-                ])
-            )
-        )
-
-        dashboard_grid.controls.append(
-            ft.Container(
-                bgcolor=colors["surface"], border_radius=16, padding=20,
-                content=ft.Column([
-                    ft.Text("💰 Gasto Total del Mes", size=14, color=colors["text_secondary"]),
-                    ft.Text(format_currency(total_gastado, currency), size=28, weight="bold", color=colors["text"]),
-                    ft.ProgressBar(value=min(progress, 1.0), color=colors["primary"] if progress <= 1 else colors["error"], bgcolor="#333333"),
-                    ft.Text(f"{progress*100:.1f}% del presupuesto", size=12, color=colors["text_secondary"]),
-                ])
-            )
-        )
-
-        color_saldo = colors["success"] if saldo >= 0 else colors["error"]
-        dashboard_grid.controls.append(
-            ft.Container(
-                bgcolor=colors["surface"], border_radius=16, padding=20,
-                content=ft.Column([
-                    ft.Text("💵 Saldo Restante", size=14, color=colors["text_secondary"]),
-                    ft.Text(format_currency(saldo, currency), size=28, weight="bold", color=color_saldo),
-                    ft.Text(f"Presupuesto: {format_currency(total_presupuestado, currency)}", size=12, color=colors["text_secondary"]),
-                ])
-            )
-        )
-
-        dashboard_grid.controls.append(
-            ft.Container(
-                bgcolor=colors["surface"], border_radius=16, padding=20,
-                content=ft.Column([
-                    ft.Text("📊 Gasto Promedio Diario", size=14, color=colors["text_secondary"]),
-                    ft.Text(format_currency(gasto_promedio_diario, currency), size=28, weight="bold", color=colors["text"]),
-                    ft.Text(f"Día {dia_actual} de {dias_totales}", size=12, color=colors["text_secondary"]),
-                ])
-            )
-        )
-
-        icono_top = iconos_por_cat.get(cat_top[0], "")
-        dashboard_grid.controls.append(
-            ft.Container(
-                bgcolor=colors["surface"], border_radius=16, padding=20,
-                content=ft.Column([
-                    ft.Text("🔥 Mayor Gasto", size=14, color=colors["text_secondary"]),
-                    ft.Row([
-                        ft.Text(f"{icono_top} ", size=24),
-                        ft.Text(cat_top[0], size=18, weight="bold", color=colors["text"]),
-                    ]),
-                    ft.Text(format_currency(cat_top[1], currency), size=22, color=colors["error"]),
-                ])
-            )
-        )
-
-        page.update()
-
-    # ==================== ACTUALIZACIÓN DE VISTAS ====================
-    def actualizar_graficos(datos):
-        img_pie = generar_grafico_gastos(datos, page.theme_mode)
-        if img_pie:
-            grafico_container.content = img_pie
-            grafico_container.visible = True
-        else:
-            grafico_container.visible = False
-        img_trend = generar_grafico_tendencia(datos, page.theme_mode)
-        if img_trend:
-            tendencia_container.content = img_trend
-            tendencia_container.visible = True
-        else:
-            tendencia_container.visible = False
-        page.update()
-
-    def actualizar_lista_visual():
-        contenedor_historial.controls.clear()
-        gastos = cargar_gastos_con_categoria(user_id)
-        actualizar_graficos(gastos)
-
-        hoy = datetime.now().strftime("%Y-%m-%d")
-        gastos_hoy = [g for g in gastos if g.get("created_at", "").startswith(hoy)]
-
-        if not gastos:
-            contenedor_historial.controls.append(
-                ft.Container(
-                    content=ft.Text("📭 No hay gastos registrados", italic=True, opacity=0.6),
-                    alignment=ft.Alignment.CENTER,
-                    padding=30
-                )
-            )
-        else:
-            if not gastos_hoy and recordatorios_activos:
-                contenedor_historial.controls.append(
+                historial_column.controls.append(
                     ft.Container(
-                        bgcolor=colors["surface"],
-                        border_radius=12,
-                        padding=10,
                         content=ft.Row([
-                            ft.Icon(ft.Icons.NOTIFICATIONS_ACTIVE, color=colors["secondary"], size=20),
-                            ft.Text("⚠️ No has registrado gastos hoy. ¡Recuerda anotarlos!", size=14, color=colors["secondary"]),
-                        ])
+                            ft.Icon(ft.Icons.FASTFOOD if "comid" in cat.lower() else ft.Icons.ATTACH_MONEY, color=colors["primary"]),
+                            ft.Column([ft.Text(g.get("nombre", "Gasto"), weight="bold"), ft.Text(cat, size=12, color="grey")], expand=True),
+                            ft.Text(f"-${monto_gasto:.2f}", color="red", weight="bold")
+                        ]),
+                        padding=10, border=ft.Border.all(1, "grey800"), border_radius=8
                     )
                 )
-            for gasto in reversed(gastos):
-                cat_info = gasto.get("categorias")
-                if isinstance(cat_info, dict):
-                    nombre_cat = cat_info.get("nombre", "Sin categoría")
-                    icono_cat = cat_info.get("icono", "")
-                elif isinstance(cat_info, list) and len(cat_info) > 0:
-                    nombre_cat = cat_info[0].get("nombre", "Sin categoría")
-                    icono_cat = cat_info[0].get("icono", "")
-                else:
-                    nombre_cat = "Sin categoría"
-                    icono_cat = ""
-                monto = gasto.get('monto', 0)
-                card = ft.Container(
-                    bgcolor=colors["surface"], border_radius=16, padding=12, margin=ft.Margin.only(bottom=8),
-                    shadow=ft.BoxShadow(spread_radius=1, blur_radius=8, color=ft.Colors.TRANSPARENT, offset=ft.Offset(0, 2)),
-                    content=ft.Row([
-                        ft.Text(f"{icono_cat} ", size=20),
-                        ft.Column([
-                            ft.Text(gasto.get("nombre", "Sin nombre"), size=15, weight="bold", color=colors["text"]),
-                            ft.Text(nombre_cat, size=12, color=colors["text_secondary"]),
-                        ], spacing=0),
-                        ft.Text(format_currency(monto, currency), size=16, weight="bold", color=colors["success"],
-                                expand=True, text_align="right"),
-                    ])
+
+            secciones_pie = []
+            paleta = [ft.Colors.TEAL, ft.Colors.ORANGE, ft.Colors.BLUE, ft.Colors.PURPLE]
+            for i, (cat_name, total_cat) in enumerate(totales_por_categoria.items()):
+                color_sel = paleta[i % len(paleta)]
+                porcentaje = (total_cat / total_acumulado) * 100 if total_acumulado > 0 else 0
+                secciones_pie.append(charts.PieChartSection(value=float(total_cat), title=f"{porcentaje:.1f}%", color=color_sel, radius=40))
+                lista_leyendas.controls.append(ft.Row([ft.Container(width=12, height=12, bgcolor=color_sel, border_radius=3), ft.Text(f"{cat_name}: ${total_cat:.2f}")]))
+            
+            grafico_container.content = charts.PieChart(sections=secciones_pie, sections_space=2, center_space_radius=40, expand=True)
+        else:
+            grafico_container.content = ft.Row([ft.Text("No hay transacciones en este período.", color="grey")], alignment=ft.MainAxisAlignment.CENTER)
+
+        # Barras
+        ingresos_periodo = {}
+        gastos_periodo = {}
+        for g in gastos_filtrados:
+            fecha_str = g.get("created_at") or ""
+            try:
+                fecha = datetime.fromisoformat(fecha_str.replace("Z", "+00:00"))
+            except:
+                continue
+            if filtro_seleccionado == "hoy":
+                clave = "Hoy"
+            elif filtro_seleccionado == "mes":
+                clave = fecha.strftime("%d")
+            else:
+                clave = fecha.strftime("%Y-%m")
+
+            monto = float(g.get("monto", 0) or 0)
+            if g.get("tipo") == "ingreso":
+                ingresos_periodo[clave] = ingresos_periodo.get(clave, 0.0) + monto
+            else:
+                gastos_periodo[clave] = gastos_periodo.get(clave, 0.0) + monto
+
+        if filtro_seleccionado == "hoy":
+            grupos = ["Hoy"]
+        elif filtro_seleccionado == "mes":
+            import calendar
+            dias_mes = calendar.monthrange(ahora.year, ahora.month)[1]
+            grupos = [str(d) for d in range(1, dias_mes+1)]
+        else:
+            grupos = sorted(set(list(ingresos_periodo.keys()) + list(gastos_periodo.keys())))
+
+        barras_ingresos = [ingresos_periodo.get(g, 0.0) for g in grupos]
+        barras_gastos = [gastos_periodo.get(g, 0.0) for g in grupos]
+
+        if any(barras_ingresos) or any(barras_gastos):
+            bar_chart = charts.BarChart(
+                bar_groups=[
+                    charts.BarChartGroup(
+                        x=i,
+                        bar_rods=[
+                            charts.BarChartRod(data=ingresos_periodo.get(g, 0.0), color=ft.Colors.GREEN_400, tooltip=f"Ingresos: ${ingresos_periodo.get(g, 0.0):.2f}"),
+                            charts.BarChartRod(data=gastos_periodo.get(g, 0.0), color=ft.Colors.RED_400, tooltip=f"Gastos: ${gastos_periodo.get(g, 0.0):.2f}"),
+                        ]
+                    )
+                    for i, g in enumerate(grupos)
+                ],
+                bottom_axis=charts.ChartAxis(labels=[charts.ChartAxisLabel(value=i, label=ft.Text(g, size=8)) for i, g in enumerate(grupos)]),
+                left_axis=charts.ChartAxis(labels_size=40),
+                tooltip_bgcolor=ft.Colors.with_opacity(0.8, ft.Colors.BLACK),
+                max_y=max(max(barras_ingresos), max(barras_gastos)) * 1.1 if max(barras_ingresos + barras_gastos) > 0 else 10,
+                expand=True,
+            )
+            barras_container.content = bar_chart
+        else:
+            barras_container.content = ft.Row([ft.Text("Sin datos para el gráfico de barras.", color="grey")], alignment=ft.MainAxisAlignment.CENTER)
+
+        txt_total_analizado.value = f"Total analizado: ${total_acumulado:.2f}"
+        page_ref.update()
+
+    try:
+        raw_gastos = supabase.table("gastos").select("*").eq("user_id", page_ref.user_id).execute()
+        gastos_locales = raw_gastos.data or []
+    except Exception:
+        grafico_container.content = ft.Text("Error de red al actualizar datos desde la nube.", color="red")
+
+    selector_tiempo = ft.SegmentedButton(
+        allow_multiple_selection=False, selected=["mes"],
+        on_change=lambda e: safe_call(aplicar_filtro_y_renderizar, next(iter(e.control.selected)) if e.control.selected else "mes")(),
+        segments=[ft.Segment(value="hoy", label=ft.Text("Hoy"), icon=ft.Icon(ft.Icons.CALENDAR_TODAY)),
+                  ft.Segment(value="mes", label=ft.Text("Este Mes"), icon=ft.Icon(ft.Icons.CALENDAR_MONTH)),
+                  ft.Segment(value="todo", label=ft.Text("Todo"), icon=ft.Icon(ft.Icons.ALL_INCLUSIVE))]
+    )
+
+    bloque_grafico_adaptable = ft.ResponsiveRow([
+        ft.Container(content=grafico_container, col={"xs": 12, "md": 5}),
+        ft.Container(content=lista_leyendas, col={"xs": 12, "md": 7}, padding=10)
+    ], run_spacing=20)
+
+    columna_principal.controls.clear()
+    columna_principal.controls.append(
+        ft.Column([
+            ft.Row([
+                ft.Text("Métricas Avanzadas", size=24, weight="bold", color=colors["primary"]),
+                ft.Row([btn_csv, btn_excel, btn_pdf], spacing=5)
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            ft.Row([selector_tiempo], alignment=ft.MainAxisAlignment.CENTER),
+            txt_total_analizado,
+            ft.Divider(height=10, color="transparent"),
+            bloque_grafico_adaptable,
+            ft.Divider(height=20, color="transparent"),
+            ft.Text("Tendencia de Ingresos y Gastos", size=18, weight="bold", color=colors["primary"]),
+            barras_container,
+            ft.Divider(height=20, color="transparent"),
+            ft.Text("Historial", size=18, weight="bold", color=colors["primary"]),
+            historial_column
+        ], scroll=ft.ScrollMode.AUTO, expand=True)
+    )
+    aplicar_filtro_y_renderizar("mes")
+
+# ==================== CATEGORÍAS ====================
+def ir_a_configuracion_categorias(page: ft.Page):
+    global columna_principal, supabase
+    cancelar_timer_dashboard()
+    colors = AppColors.get(page.theme_mode)
+    columna_principal.controls.clear()
+
+    txt_nueva_cat = ft.TextField(label="Nueva categoría", hint_text="Ej. Entretenimiento, Educación...",
+                                 border_color=colors["primary"], expand=True)
+    lista_categorias_vista = ft.Column(spacing=8, scroll=ft.ScrollMode.AUTO, expand=True)
+
+    def refrescar_lista_categorias():
+        lista_categorias_vista.controls.clear()
+        try:
+            res = supabase.table("categorias").select("*").eq("user_id", page.user_id).order("nombre").execute()
+            categorias = res.data or []
+        except Exception:
+            mostrar_snackbar(page, "Error al cargar categorías.", colors["error"])
+            categorias = []
+
+        if not categorias:
+            lista_categorias_vista.controls.append(
+                ft.Text("No tienes categorías. Crea una nueva.", color=colors["text_secondary"], italic=True)
+            )
+        else:
+            for cat in categorias:
+                cat_id = cat["id"]
+                nombre = str(cat.get("nombre", "")).capitalize()
+                try:
+                    count_res = supabase.table("gastos").select("count", count="exact").eq("categoria_id", cat_id).eq("user_id", page.user_id).execute()
+                    count = count_res.count if count_res.count else 0
+                except:
+                    count = 0
+
+                lista_categorias_vista.controls.append(
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Icon(ft.Icons.LABEL_OUTLINE, color=colors["primary"], size=20),
+                            ft.Column([
+                                ft.Text(nombre, weight="bold", color=colors["text"], size=14),
+                                ft.Text(f"{count} gastos", size=11, color=colors["text_secondary"])
+                            ], expand=True),
+                            ft.IconButton(icon=ft.Icons.EDIT, icon_color=colors["primary"], tooltip="Editar",
+                                          on_click=lambda e, c=cat: editar_categoria(c)),
+                            ft.IconButton(icon=ft.Icons.DELETE, icon_color=colors["error"], tooltip="Eliminar",
+                                          on_click=lambda e, c=cat: confirmar_eliminar_categoria(c)),
+                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                        padding=10, bgcolor=colors["surface"], border_radius=8,
+                        margin=ft.margin.only(bottom=5)
+                    )
                 )
-                contenedor_historial.controls.append(card)
         page.update()
 
-    def guardar_gasto_nube(e):
-        nombre = input_nombre.value.strip()
-        monto_str = input_monto.value.strip()
-        categoria_id = int(categoria_dropdown.value) if categoria_dropdown.value else None
-        if not nombre or not monto_str or not categoria_id:
-            mostrar_snackbar(page, "❌ Completa todos los campos (incluye categoría)", colors["error"])
+    def guardar_categoria_click(e):
+        nombre = txt_nueva_cat.value.strip()
+        if not nombre:
+            mostrar_snackbar(page, "Escribe un nombre.", colors["error"])
             return
         try:
-            monto_val = float(monto_str)
-            supabase.table("gastos").insert({
-                "nombre": nombre,
-                "monto": monto_val,
-                "categoria_id": categoria_id,
-                "user_id": user_id
-            }).execute()
-            input_nombre.value = ""
-            input_monto.value = ""
-            actualizar_lista_visual()
-            if vista_presupuestos.visible:
-                cargar_presupuestos()
-            if vista_dashboard.visible:
-                cargar_dashboard()
-            actualizar_racha()
-            verificar_alertas_presupuesto()
-            mostrar_snackbar(page, "✅ Gasto guardado", colors["success"])
-        except ValueError:
-            mostrar_snackbar(page, "❌ Monto inválido", colors["error"])
-        except Exception as ex:
-            print(ex)
-            mostrar_snackbar(page, "❌ Error al guardar", colors["error"])
+            supabase.table("categorias").insert({"nombre": nombre, "user_id": page.user_id}).execute()
+            mostrar_snackbar(page, f"¡Categoría '{nombre}' creada!", colors["success"])
+            txt_nueva_cat.value = ""
+            refrescar_lista_categorias()
+            global _cache_dashboard
+            _cache_dashboard["timestamp"] = 0
+        except Exception as e:
+            mostrar_snackbar(page, f"Error al guardar: {e}", colors["error"])
 
-    # ==================== IA GURU ====================
-    def consultar_guru(e):
-        if not GENAI_OK:
-            mostrar_snackbar(page, "⚠️ La IA Guru no está disponible", colors["error"])
-            return
-        if not premium:
-            mostrar_snackbar(page, "⚠️ IA Guru es Premium", colors["error"])
-            return
-        if not input_chat.value:
-            return
-        pregunta = input_chat.value
-        chat_display.controls.append(ft.Text(f"👤 Tú: {pregunta}", color=colors["secondary"], weight="bold"))
-        input_chat.value = ""
-        page.update()
-        thinking = ft.Text("🧙 Guru: Pensando...", italic=True, color=colors["text_secondary"])
-        chat_display.controls.append(thinking)
-        page.update()
-        if not client:
-            respuesta = "No se ha configurado una API Key de Gemini."
-        else:
-            gastos = cargar_gastos_con_categoria(user_id)
-            total = sum(g.get("monto", 0) for g in gastos)
-            contexto = f"Total gastado: {format_currency(total, currency)}. Últimos gastos: " + ", ".join(
-                [f"{g.get('nombre','')} {format_currency(g.get('monto',0), currency)}" for g in gastos[-3:]])
-            prompt = f"Eres un asesor financiero. Contexto: {contexto}. Pregunta: {pregunta}"
-            try:
-                resp = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
-                respuesta = resp.text
-            except Exception as ex:
-                respuesta = f"Error en Gemini: {str(ex)[:150]}"
-        chat_display.controls.remove(thinking)
-        chat_display.controls.append(ft.Container(content=ft.Markdown(f"🧙 **Guru:** {respuesta}"), padding=12,
-                                                  bgcolor=colors["surface"], border_radius=16))
-        page.update()
-
-    # ==================== CIERRE DE SESIÓN Y TEMA ====================
-    def logout(e):
-        supabase.auth.sign_out()
-        page.user_id = None
-        page.user_email = None
-        login_view(page)
-
-    def cambiar_tema(e):
-        if page.theme_mode == ft.ThemeMode.DARK:
-            nuevo = ft.ThemeMode.LIGHT
-            guardar = "LIGHT"
-        elif page.theme_mode == ft.ThemeMode.LIGHT:
-            nuevo = ft.ThemeMode.SYSTEM
-            guardar = "SYSTEM"
-        else:
-            nuevo = ft.ThemeMode.DARK
-            guardar = "DARK"
-        page.theme_mode = nuevo
-        if hasattr(page, "client_storage"):
-            page.client_storage.set("theme_mode", guardar)
-        page.clean()
-        main_app(page)
-
-    # ==================== CONFIGURACIÓN ====================
-    def abrir_configuracion(e):
-        currency_dd = ft.Dropdown(
-            label="Moneda",
-            options=[
-                ft.dropdown.Option("CRC", "Colón costarricense (₡)"),
-                ft.dropdown.Option("USD", "Dólar estadounidense ($)"),
-                ft.dropdown.Option("COP", "Peso colombiano ($)"),
-                ft.dropdown.Option("EUR", "Euro (€)"),
-                ft.dropdown.Option("MXN", "Peso mexicano ($)"),
-            ],
-            value=currency,
-        )
-        tema_dd = ft.Dropdown(
-            label="Tema",
-            options=[
-                ft.dropdown.Option("DARK", "Oscuro"),
-                ft.dropdown.Option("LIGHT", "Claro"),
-                ft.dropdown.Option("SYSTEM", "Automático"),
-            ],
-            value="DARK" if page.theme_mode == ft.ThemeMode.DARK else ("LIGHT" if page.theme_mode == ft.ThemeMode.LIGHT else "SYSTEM"),
-        )
-        recordatorios_switch = ft.Switch(
-            label="Recordatorios diarios",
-            value=recordatorios_activos,
-        )
-
-        def guardar_config():
-            nueva_moneda = currency_dd.value
-            if hasattr(page, "client_storage"):
-                page.client_storage.set("currency", nueva_moneda)
-                page.client_storage.set("recordatorios", "true" if recordatorios_switch.value else "false")
-                page.client_storage.set("theme_mode", tema_dd.value)
-            close_dialog(page, dlg)
-            mostrar_snackbar(page, "Configuración guardada. Reiniciando...", colors["success"])
-            page.clean()
-            main_app(page)
-
-        dlg = ft.AlertDialog(
-            title=ft.Text("Configuración"),
-            content=ft.Column([tema_dd, currency_dd, ft.Divider(), recordatorios_switch]),
-            actions=[
-                ft.TextButton("Guardar", on_click=lambda e: guardar_config()),
-                ft.TextButton("Cancelar", on_click=lambda e: close_dialog(page, dlg)),
-            ],
-            actions_alignment=ft.MainAxisAlignment.END,
-        )
-        page.show_dialog(dlg)
-
-    # ==================== GESTIÓN DE CATEGORÍAS ====================
-    def abrir_gestor_categorias(e):
-        cats = cargar_categorias(user_id)
-        lista_categorias = ft.Column(spacing=8, scroll=ft.ScrollMode.ALWAYS, expand=True)
-        def refrescar_lista():
-            nonlocal cats
-            cats = cargar_categorias(user_id)
-            lista_categorias.controls.clear()
-            for c in cats:
-                emoji = c.get("icono", "")
-                nombre = c["nombre"]
-                cid = c["id"]
-                es_global = c["user_id"] == "00000000-0000-0000-0000-000000000001"
-                fila = ft.Row([
-                    ft.Text(f"{emoji}  {nombre}", expand=True),
-                    ft.IconButton(ft.Icons.EDIT, icon_size=18, on_click=lambda e, cid=cid, nombre=nombre, emoji=emoji: editar_cat(cid, nombre, emoji)),
-                    ft.IconButton(ft.Icons.DELETE, icon_size=18, icon_color="red", on_click=lambda e, cid=cid, nombre=nombre: confirmar_eliminar(cid, nombre))
-                ])
-                if es_global:
-                    fila.controls[-1].disabled = True
-                lista_categorias.controls.append(fila)
-            page.update()
-        def agregar_nueva():
-            nombre = nuevo_nombre.value.strip()
-            emoji = nuevo_emoji.value if hasattr(nuevo_emoji, 'value') else "📦"
-            if not nombre:
-                mostrar_snackbar(page, "Ingresa un nombre", colors["error"])
+    def editar_categoria(cat):
+        nombre_actual = cat.get("nombre", "")
+        txt_editar = ft.TextField(value=nombre_actual, label="Nuevo nombre", border_color=colors["primary"], autofocus=True)
+        
+        def guardar_edicion(e):
+            nuevo_nombre = txt_editar.value.strip()
+            if not nuevo_nombre:
+                mostrar_snackbar(page, "El nombre no puede estar vacío.", colors["error"])
                 return
-            agregar_categoria(nombre, emoji, user_id)
-            nuevo_nombre.value = ""
-            refrescar_lista()
-            mostrar_snackbar(page, "Categoría agregada", colors["success"])
-        def editar_cat(cid, nombre_actual, emoji_actual):
-            edit_nombre = ft.TextField(label="Nuevo nombre", value=nombre_actual)
-            edit_emoji = ft.TextField(label="Emoji", value=emoji_actual)
-            def guardar_edicion():
-                nuevo_n = edit_nombre.value.strip()
-                nuevo_e = edit_emoji.value.strip() or "📦"
-                if not nuevo_n:
-                    return
-                editar_categoria(cid, nuevo_n, nuevo_e)
-                close_dialog(page, dlg_edit)
-                refrescar_lista()
-                mostrar_snackbar(page, "Categoría actualizada", colors["success"])
-            dlg_edit = ft.AlertDialog(
-                title=ft.Text("Editar categoría"),
-                content=ft.Column([edit_nombre, edit_emoji]),
-                actions=[ft.TextButton("Guardar", on_click=lambda e: guardar_edicion()), ft.TextButton("Cancelar", on_click=lambda e: close_dialog(page, dlg_edit))]
-            )
-            page.show_dialog(dlg_edit)
-        def confirmar_eliminar(cid, nombre):
-            def eliminar():
-                eliminar_categoria(cid)
-                close_dialog(page, dlg_confirm)
-                refrescar_lista()
-                mostrar_snackbar(page, f"Categoría '{nombre}' eliminada", colors["success"])
-            dlg_confirm = ft.AlertDialog(
-                title=ft.Text("Eliminar categoría"),
-                content=ft.Text(f"¿Seguro que deseas eliminar '{nombre}'?"),
-                actions=[ft.TextButton("Eliminar", on_click=lambda e: eliminar()), ft.TextButton("Cancelar", on_click=lambda e: close_dialog(page, dlg_confirm))]
-            )
-            page.show_dialog(dlg_confirm)
-        nuevo_nombre = ft.TextField(label="Nombre de nueva categoría", expand=True)
-        nuevo_emoji = ft.TextField(label="Emoji (ej. 🍕)", width=80, value="📦")
-        def seleccionar_emoji(e):
-            nuevo_emoji.value = e.control.data
-            page.update()
-        emoji_grid = ft.Row(
-            [ft.TextButton(emoji, data=emoji, on_click=seleccionar_emoji) for emoji in EMOJI_LIST],
-            wrap=True, spacing=2
-        )
-        dlg = ft.AlertDialog(
-            title=ft.Text("🏷️ Gestionar Categorías"),
-            content=ft.Column([
-                ft.Text("Categorías actuales:", weight="bold"),
-                ft.Container(content=lista_categorias, height=200, border_radius=10, bgcolor=colors["surface"], padding=10),
-                ft.Divider(),
-                ft.Text("Nueva categoría:", weight="bold"),
-                ft.Row([nuevo_nombre, nuevo_emoji, ft.IconButton(ft.Icons.ADD, on_click=lambda e: agregar_nueva())]),
-                ft.Text("Selecciona un emoji:", size=12),
-                emoji_grid,
-            ], scroll=ft.ScrollMode.AUTO, expand=True),
-            actions=[ft.TextButton("Cerrar", on_click=lambda e: close_dialog(page, dlg))]
-        )
-        refrescar_lista()
-        page.show_dialog(dlg)
-
-    # ==================== GESTIÓN DE RECORDATORIOS ====================
-    def cargar_recordatorios():
-        try:
-            res = supabase.table("recordatorios").select("*").eq("user_id", user_id).order("fecha_inicio").execute()
-            return res.data if res.data else []
-        except:
-            return []
-
-    def abrir_gestor_recordatorios(e):
-        recs = cargar_recordatorios()
-        lista = ft.Column(spacing=8)
-        def refrescar():
-            nonlocal recs
-            recs = cargar_recordatorios()
-            lista.controls.clear()
-            for r in recs:
-                estado = "🟢" if r["activo"] else "🔴"
-                lista.controls.append(
-                    ft.Row([
-                        ft.Text(f"{estado} {r['titulo']} ({r['frecuencia']}) - {r['fecha_inicio']}"),
-                        ft.IconButton(ft.Icons.DELETE, icon_size=18, icon_color="red", on_click=lambda e, rid=r["id"]: eliminar_recordatorio(rid))
-                    ])
-                )
-            page.update()
-
-        def eliminar_recordatorio(rid):
-            supabase.table("recordatorios").delete().eq("id", rid).execute()
-            refrescar()
-
-        titulo = ft.TextField(label="Título", expand=True)
-        monto = ft.TextField(label="Monto", prefix=ft.Text(currency_symbol))
-        fecha = ft.TextField(label="Fecha inicio (YYYY-MM-DD)", hint_text="2025-05-25")
-        frecuencia = ft.Dropdown(
-            label="Frecuencia",
-            options=[
-                ft.dropdown.Option("unico", "Único"),
-                ft.dropdown.Option("semanal", "Semanal"),
-                ft.dropdown.Option("mensual", "Mensual"),
-                ft.dropdown.Option("anual", "Anual"),
-            ],
-            value="mensual"
-        )
-        def agregar():
             try:
-                monto_val = float(monto.value) if monto.value else None
-                supabase.table("recordatorios").insert({
-                    "user_id": user_id,
-                    "titulo": titulo.value,
-                    "monto": monto_val,
-                    "fecha_inicio": fecha.value,
-                    "frecuencia": frecuencia.value,
-                    "activo": True
-                }).execute()
-                titulo.value, monto.value, fecha.value = "", "", ""
-                refrescar()
+                supabase.table("categorias").update({"nombre": nuevo_nombre}).eq("id", cat["id"]).execute()
+                mostrar_snackbar(page, "Categoría actualizada.", colors["success"])
+                dlg_edit.open = False
+                page.update()
+                refrescar_lista_categorias()
+                _cache_dashboard["timestamp"] = 0
             except Exception as ex:
                 mostrar_snackbar(page, f"Error: {ex}", colors["error"])
 
-        dlg = ft.AlertDialog(
-            title=ft.Text("🔔 Recordatorios personalizados"),
-            content=ft.Column([
-                ft.Text("Tus recordatorios:"),
-                ft.Container(content=lista, height=150, bgcolor=colors["surface"], padding=10, border_radius=10),
-                ft.Divider(),
-                titulo, monto, fecha, frecuencia,
-                ft.FilledButton("Agregar", on_click=lambda e: agregar())
-            ], scroll=ft.ScrollMode.AUTO, expand=True),
-            actions=[ft.TextButton("Cerrar", on_click=lambda e: close_dialog(page, dlg))]
-        )
-        refrescar()
-        page.show_dialog(dlg)
-
-    # ==================== MENÚ DE OPCIONES ====================
-    def popup_acciones():
-        return ft.PopupMenuButton(
-            icon=ft.Icons.MORE_VERT,
-            tooltip="Opciones",
-            items=[
-                ft.PopupMenuItem(content=ft.Text("📦 Exportar Backup"), icon=ft.Icons.BACKUP, on_click=exportar_backup),
-                ft.PopupMenuItem(content=ft.Text("📥 Importar Backup"), icon=ft.Icons.UPLOAD_FILE, on_click=importar_backup),
-                ft.PopupMenuItem(content=ft.Text("📲 Leer SMS"), icon=ft.Icons.SMS, on_click=importar_sms),
-                ft.PopupMenuItem(content=ft.Text("Exportar CSV"), icon=ft.Icons.DOWNLOAD, on_click=exportar_csv),
-                ft.PopupMenuItem(content=ft.Text("Exportar Excel"), icon=ft.Icons.TABLE_CHART, on_click=exportar_excel),
-                ft.PopupMenuItem(content=ft.Text("Exportar PDF"), icon=ft.Icons.PICTURE_AS_PDF, on_click=exportar_pdf),
-                ft.PopupMenuItem(content=ft.Text("Cambiar tema"), icon=ft.Icons.BRIGHTNESS_4, on_click=cambiar_tema),
-                ft.PopupMenuItem(content=ft.Text("🔄 Sincronizar ahora"), icon=ft.Icons.SYNC, on_click=lambda e: sincronizar_datos()),
-                ft.PopupMenuItem(content=ft.Text("⚙️ Configuración"), icon=ft.Icons.SETTINGS, on_click=lambda e: abrir_configuracion(e)),
-                ft.PopupMenuItem(content=ft.Text("🏷️ Categorías"), icon=ft.Icons.CATEGORY, on_click=abrir_gestor_categorias),
-                ft.PopupMenuItem(content=ft.Text("🔔 Recordatorios"), icon=ft.Icons.NOTIFICATIONS, on_click=abrir_gestor_recordatorios),
-                ft.PopupMenuItem(content=ft.Text("🔑 Cambiar PIN"), icon=ft.Icons.LOCK, on_click=lambda e: cambiar_pin(page)),
-                ft.PopupMenuItem(content=ft.Text("Cerrar sesión"), icon=ft.Icons.LOGOUT, on_click=logout),
+        dlg_edit = ft.AlertDialog(
+            title=ft.Text("Editar categoría"),
+            content=ft.Column([txt_editar]),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda e: close_dialog(page)),
+                ft.FilledButton("Guardar", on_click=lambda e: safe_call(guardar_edicion, e)()),
             ],
         )
-
-    # ==================== VISTAS ====================
-    vista_gastos = ft.Column([
-        ft.Row([ft.Text("MoneyFlow", size=24, weight="bold", color=colors["primary"]), popup_acciones()],
-               alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-        ft.Row([ft.Text(f"Bienvenido, {user_email}", size=12, color=colors["text_secondary"]), estado_conexion],
-               alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-        ft.Divider(height=8, color=ft.Colors.TRANSPARENT),
-        ft.Column([input_nombre, ft.Row([input_monto, categoria_dropdown], spacing=10)], spacing=10),
-        ft.FilledButton("Añadir Gasto", on_click=guardar_gasto_nube, icon=ft.Icons.ADD_CIRCLE, expand=True,
-                        style=ft.ButtonStyle(bgcolor=colors["primary"], color=colors["bg"], shape=ft.RoundedRectangleBorder(radius=30))),
-        ft.Divider(height=16),
-        grafico_container,
-        ft.Text("Distribución por gastos", size=12, weight="bold", color=colors["text_secondary"]),
-        tendencia_container,
-        ft.Text("Evolución mensual", size=12, weight="bold", color=colors["text_secondary"]),
-        ft.Divider(height=8),
-        ft.Text("Historial", size=16, weight="bold", color=colors["text"]),
-        ft.Container(content=contenedor_historial, expand=True, bgcolor=ft.Colors.TRANSPARENT, border_radius=16)
-    ], visible=False, expand=True, scroll=ft.ScrollMode.AUTO)
-
-    vista_presupuestos = ft.Column([
-        ft.Row([ft.Text("Presupuestos Mensuales", size=22, weight="bold", color=colors["primary"]), popup_acciones()],
-               alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-        ft.Row([ft.Text(f"Bienvenido, {user_email}", size=12, color=colors["text_secondary"]), estado_conexion],
-               alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-        ft.Divider(height=8, color=ft.Colors.TRANSPARENT),
-        presupuestos_grid
-    ], visible=False, expand=True, scroll=ft.ScrollMode.AUTO)
-
-    vista_dashboard = ft.Column([
-        ft.Row([ft.Text("📈 Dashboard", size=24, weight="bold", color=colors["primary"]), popup_acciones()],
-               alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-        ft.Row([ft.Text(f"Resumen del mes - {user_email}", size=12, color=colors["text_secondary"]), estado_conexion],
-               alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-        ft.Divider(height=8, color=ft.Colors.TRANSPARENT),
-        dashboard_grid
-    ], visible=False, expand=True, scroll=ft.ScrollMode.AUTO)
-
-    vista_ia = ft.Column([
-        ft.Row([ft.Text("Money-Guru AI", size=24, weight="bold", color=colors["primary"]), popup_acciones()],
-               alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-        ft.Row([ft.Text(f"Bienvenido, {user_email}", size=12, color=colors["text_secondary"]), estado_conexion],
-               alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-        ft.Divider(height=8, color=ft.Colors.TRANSPARENT),
-        ft.Container(content=chat_display, expand=True, bgcolor=colors["surface"], border_radius=16, padding=10),
-        ft.Row([input_chat, ft.IconButton(ft.Icons.SEND, on_click=consultar_guru, icon_color=colors["primary"])], spacing=5)
-    ], visible=False, expand=True)
-
-    vista_perfil = ft.Column([
-        ft.Row([ft.Text("👤 Perfil", size=24, weight="bold", color=colors["primary"]), popup_acciones()],
-               alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-        ft.Divider(height=8, color=ft.Colors.TRANSPARENT),
-        perfil_contenido
-    ], visible=False, expand=True, scroll=ft.ScrollMode.AUTO)
-
-    # ==================== NAVEGACIÓN INFERIOR (5 vistas) ====================
-    def cambiar_vista(e):
-        indice = e.control.selected_index
-        vista_gastos.visible = (indice == 0)
-        vista_presupuestos.visible = (indice == 1)
-        vista_dashboard.visible = (indice == 2)
-        vista_ia.visible = (indice == 3)
-        vista_perfil.visible = (indice == 4)
-        if indice == 1:
-            cargar_presupuestos()
-        elif indice == 2:
-            cargar_dashboard()
-        elif indice == 4:
-            cargar_perfil()
+        page.dialog = dlg_edit
+        dlg_edit.open = True
         page.update()
+
+    def confirmar_eliminar_categoria(cat):
+        try:
+            count_res = supabase.table("gastos").select("count", count="exact").eq("categoria_id", cat["id"]).eq("user_id", page.user_id).execute()
+            count = count_res.count if count_res.count else 0
+        except:
+            count = 0
+
+        mensaje = f"¿Eliminar la categoría '{cat.get('nombre', '')}'?"
+        if count > 0:
+            mensaje += f"\n\nTiene {count} gastos asociados. Quedarán sin categoría (General)."
+
+        def eliminar_click(e):
+            try:
+                if count > 0:
+                    supabase.table("gastos").update({"categoria_id": None}).eq("categoria_id", cat["id"]).eq("user_id", page.user_id).execute()
+                supabase.table("categorias").delete().eq("id", cat["id"]).execute()
+                mostrar_snackbar(page, "Categoría eliminada.", colors["success"])
+                dlg_confirm.open = False
+                page.update()
+                refrescar_lista_categorias()
+                _cache_dashboard["timestamp"] = 0
+            except Exception as ex:
+                mostrar_snackbar(page, f"Error al eliminar: {ex}", colors["error"])
+
+        dlg_confirm = ft.AlertDialog(
+            title=ft.Text("Eliminar categoría"),
+            content=ft.Text(mensaje, size=14),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda e: close_dialog(page)),
+                ft.FilledButton("Eliminar", on_click=lambda e: safe_call(eliminar_click, e)(),
+                                style=ft.ButtonStyle(bgcolor=colors["error"], color="white")),
+            ],
+        )
+        page.dialog = dlg_confirm
+        dlg_confirm.open = True
+        page.update()
+
+    columna_principal.controls.append(
+        ft.Column([
+            ft.Row([ft.IconButton(icon=ft.Icons.ARROW_BACK, icon_color=colors["primary"],
+                                  on_click=lambda e: safe_call(ejecutar_vista_dashboard, page)()),
+                    ft.Text("Gestión de Categorías", size=24, weight="bold", color=colors["primary"])],
+                   alignment=ft.MainAxisAlignment.START),
+            ft.Text("Crea, edita o elimina categorías para organizar tus gastos.", color=colors["text_secondary"]),
+            ft.Divider(height=10, color="transparent"),
+            ft.Row([txt_nueva_cat, ft.IconButton(icon=ft.Icons.ADD_CIRCLE, icon_color=colors["success"], icon_size=40,
+                                                  on_click=lambda e: safe_call(guardar_categoria_click, e)())],
+                   alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            ft.Divider(height=10, color="transparent"),
+            lista_categorias_vista
+        ], scroll=ft.ScrollMode.AUTO, expand=True)
+    )
+    page.update()
+    refrescar_lista_categorias()
+
+# ==================== ASISTENTE: CHAT INTERACTIVO GURÚ IA ====================
+async def obtener_contexto_financiero(page: ft.Page) -> str:
+    """Recopila datos reales del usuario para personalizar la respuesta de la IA."""
+    try:
+        res = supabase.table("gastos").select("*").eq("user_id", page.user_id).execute()
+        movimientos = res.data or []
+    except Exception:
+        return "No se pudieron obtener los datos financieros."
+
+    ahora = datetime.now()
+    gastos_mes = 0.0
+    ingresos_mes = 0.0
+    categorias = {}
+    ultimos = []
+
+    for m in movimientos:
+        try:
+            fecha = datetime.fromisoformat(m.get("created_at", "").replace("Z", "+00:00"))
+        except:
+            continue
+        if fecha.year == ahora.year and fecha.month == ahora.month:
+            monto = float(m.get("monto", 0) or 0)
+            if m.get("tipo") == "ingreso":
+                ingresos_mes += monto
+            else:
+                gastos_mes += monto
+                cat = str(m.get("categoria_id") or "General")
+                categorias[cat] = categorias.get(cat, 0.0) + monto
+        # Últimos 5 movimientos
+        if len(ultimos) < 5:
+            ultimos.append(f"{m.get('nombre','')}: ${m.get('monto',0)} ({m.get('tipo','gasto')})")
+
+    balance = ingresos_mes - gastos_mes
+    contexto = (
+        f"Balance del mes: ${balance:.2f} (Ingresos: ${ingresos_mes:.2f}, Gastos: ${gastos_mes:.2f}).\n"
+        f"Categorías con más gasto: {categorias if categorias else 'ninguna'}.\n"
+        f"Últimos movimientos: {', '.join(ultimos) if ultimos else 'ninguno'}.\n"
+    )
+    return contexto
+
+
+def abrir_chat_guru(page: ft.Page):
+    colors = AppColors.get(page.theme_mode)
+    txt_pregunta = ft.TextField(
+        label="Pregúntale algo al Gurú...",
+        hint_text="Ej. ¿Cómo puedo ahorrar el 20%?",
+        expand=True,
+        border_color=colors["primary"],
+        color=colors["text"],
+        text_size=14,
+    )
+    contenedor_respuesta = ft.Column([
+        ft.Text(
+            "💡 Consejos rápidos:\nRecuerda mantener tus gastos fijos por debajo del 50%...",
+            size=14,
+            color=colors["text_secondary"],
+            italic=True,
+        )
+    ], spacing=10)
+
+    async def verificar_acceso_guru() -> tuple[bool, str]:
+        """
+        Retorna (permitido, mensaje_error).
+        Si es Premium, siempre permitido.
+        Si es Gratuito, solo permitido si tiene menos de 50 movimientos.
+        """
+        try:
+            plan = await obtener_plan(page)
+        except:
+            plan = "free"
+
+        if plan == "paid":
+            return True, ""
+
+        # Plan gratuito: verificar conteo de movimientos
+        try:
+            res = supabase.table("gastos").select("count", count="exact").eq("user_id", page.user_id).execute()
+            total = res.count or 0
+        except:
+            total = 0
+
+        if total >= 50:
+            return False, "Has alcanzado el límite gratuito. Adquiere la licencia Premium para acceder al Gurú IA ilimitado."
+        return True, ""
+
+    async def enviar_pregunta_click(e):
+        pregunta = txt_pregunta.value.strip()
+        if not pregunta:
+            return
+
+        # Verificar acceso
+        permitido, mensaje_bloqueo = await verificar_acceso_guru()
+        if not permitido:
+            contenedor_respuesta.controls.clear()
+            contenedor_respuesta.controls.append(
+                ft.Container(
+                    content=ft.Column([
+                        ft.Text("🔒 Acceso restringido", size=16, weight="bold", color=colors["error"]),
+                        ft.Text(mensaje_bloqueo, size=14, color=colors["text_secondary"]),
+                        ft.TextButton("Comprar Premium ($10)", on_click=lambda e: page.launch_url("https://vega907.gumroad.com/l/moneyflow-premium")),
+                    ], spacing=10),
+                    padding=12,
+                    bgcolor=colors["bg"],
+                    border_radius=10,
+                    border=ft.Border.all(1, colors["error"]),
+                )
+            )
+            page.update()
+            return
+
+        contenedor_respuesta.controls.clear()
+        contenedor_respuesta.controls.append(
+            ft.Row([
+                ft.ProgressRing(width=16, height=16, stroke_width=2, color=colors["primary"]),
+                ft.Text(" El Gurú está pensando...", size=13, italic=True, color=colors["text_secondary"]),
+            ])
+        )
+        page.update()
+        txt_pregunta.value = ""
+
+        # Determinar respuesta según plan
+        try:
+            plan = await obtener_plan(page)
+        except:
+            plan = "free"
+
+        if plan == "paid" and os.getenv("OPENAI_API_KEY"):
+            try:
+                contexto = await obtener_contexto_financiero(page)
+                respuesta_guru = await llamar_ia_guru(pregunta, contexto)
+            except Exception as ex:
+                respuesta_guru = f"Error al consultar la IA: {ex}. Intentá de nuevo."
+        else:
+            # Respuestas predefinidas para plan gratuito (mientras no alcance límite)
+            pregunta_lower = pregunta.lower()
+            if "ahorrar" in pregunta_lower or "ahorro" in pregunta_lower:
+                respuesta_guru = "Automatizá tu ahorro: transferí el 10% de tus ingresos a otra cuenta apenas cobres."
+            elif "gasto" in pregunta_lower or "gastar" in pregunta_lower:
+                respuesta_guru = "Revisá Métricas. Si Entretenimiento o Comida superan el 30% de tus ingresos, ajustá tu presupuesto."
+            elif "invertir" in pregunta_lower or "inversion" in pregunta_lower:
+                respuesta_guru = "Antes de invertir, tené un fondo de emergencia de 3-6 meses de gastos fijos."
+            else:
+                respuesta_guru = "Registrá cada ingreso y gasto en MoneyFlow para obtener un diagnóstico exacto."
+
+        contenedor_respuesta.controls.clear()
+        contenedor_respuesta.controls.append(
+            ft.Column([
+                ft.Text(f"👤 Tu duda: {pregunta}", size=12, color=colors["text_secondary"]),
+                ft.Container(
+                    content=ft.Text(f"✨ Gurú: {respuesta_guru}", size=14, color=colors["text"]),
+                    bgcolor=colors["bg"],
+                    padding=12,
+                    border_radius=10,
+                    border=ft.Border.all(1, colors["primary"]),
+                ),
+            ])
+        )
+        page.update()
+
+    async def llamar_ia_guru(pregunta_usuario: str, contexto_financiero: str) -> str:
+        """Llama a la API de OpenAI con el contexto del usuario."""
+        import openai
+        openai.api_key = os.getenv("OPENAI_API_KEY")
+        system_prompt = (
+            "Sos un asesor financiero amigable y experto. Usá los datos reales del usuario "
+            "para dar consejos personalizados y prácticos. Respondé siempre en español, "
+            "con un tono cálido y motivador.\n\n"
+            f"DATOS DEL USUARIO:\n{contexto_financiero}"
+        )
+        response = await openai.ChatCompletion.acreate(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": pregunta_usuario},
+            ],
+            temperature=0.7,
+            max_tokens=300,
+        )
+        return response.choices[0].message.content.strip()
+
+    def cerrar_bs(e):
+        bs.open = False
+        page.update()
+
+    bs = ft.BottomSheet(
+        content=ft.Container(
+            content=ft.Column(
+                [
+                    ft.Row([
+                        ft.Icon(ft.Icons.LIGHTBULB_ROUNDED, color="amber", size=28),
+                        ft.Text(" Gurú Financiero IA", size=20, weight=ft.FontWeight.BOLD, color=colors["text"]),
+                    ], alignment=ft.MainAxisAlignment.CENTER),
+                    ft.Divider(color=colors["text_secondary"]),
+                    contenedor_respuesta,
+                    ft.Divider(height=10, color="transparent"),
+                    ft.Row([
+                        txt_pregunta,
+                        ft.IconButton(
+                            icon=ft.Icons.SEND_ROUNDED,
+                            icon_color=colors["primary"],
+                            icon_size=28,
+                            tooltip="Enviar pregunta",
+                            on_click=lambda e: safe_async(enviar_pregunta_click, e),
+                        ),
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    ft.Divider(height=5, color="transparent"),
+                    ft.FilledButton("Cerrar Chat", on_click=lambda e: safe_call(cerrar_bs, e)(), style=ft.ButtonStyle(bgcolor=colors["surface"])),
+                ],
+                tight=True,
+                spacing=12,
+            ),
+            padding=20,
+            bgcolor=colors["surface"],
+            border_radius=ft.BorderRadius(top_left=16, top_right=16, bottom_left=0, bottom_right=0),
+        ),
+        open=True,
+    )
+    page.overlay.append(bs)
+    page.update()
+
+
+# ==================== CERRAR SESIÓN ====================
+def cerrar_sesion_action(page: ft.Page):
+    colors = AppColors.get(page.theme_mode)
+    page.user_id = None
+    page.navigation_bar = None
+    page.appbar = None
+    mostrar_snackbar(page, "🔒 Sesión cerrada de forma segura.", colors["text_secondary"])
+    login_view(page)
+
+# ==================== INTERFAZ PRINCIPAL ====================
+def mostrar_interfaz_principal(page: ft.Page):
+    global columna_principal
+    colors = AppColors.get(page.theme_mode)
+    page.controls.clear()
+    
+    page.appbar = ft.AppBar(
+        leading=ft.Icon(ft.Icons.MONEY_OFF_OUTLINED, color=colors["primary"]),
+        leading_width=40,
+        title=ft.Text("MoneyFlow Cloud", weight=ft.FontWeight.BOLD, size=20, color=colors["text"]),
+        center_title=False,
+        bgcolor=colors["surface"],
+        actions=[
+            ft.IconButton(icon=ft.Icons.LIGHTBULB_CIRCLE, icon_color="amber", tooltip="Consultar al Gurú IA",
+                          on_click=lambda e: safe_call(abrir_chat_guru, page)()),
+            ft.IconButton(icon=ft.Icons.PERSON_ROUNDED, icon_color=colors["primary"], tooltip="Perfil",
+                          on_click=lambda e: safe_call(ir_a_perfil, page)()),
+            ft.VerticalDivider(width=10),
+        ],
+    )
+
+    def cambio_pestana(e):
+        idx = e.control.selected_index
+        if idx == 0: ejecutar_vista_dashboard(page)
+        elif idx == 1: ir_a_movimientos_crud(page)
+        elif idx == 2: ir_a_presupuestos(page)
+        elif idx == 3: ejecutar_vista_estadisticas_segura(page)
+        elif idx == 4: ir_a_configuracion_categorias(page)
 
     page.navigation_bar = ft.NavigationBar(
         selected_index=0,
-        on_change=cambiar_vista,
-        destinations=[
-            ft.NavigationBarDestination(icon=ft.Icons.ATTACH_MONEY, label="GASTOS"),
-            ft.NavigationBarDestination(icon=ft.Icons.PIE_CHART, label="PRESUP."),
-            ft.NavigationBarDestination(icon=ft.Icons.DASHBOARD, label="DASHBOARD"),
-            ft.NavigationBarDestination(icon=ft.Icons.PSYCHOLOGY, label="IA"),
-            ft.NavigationBarDestination(icon=ft.Icons.PERSON, label="PERFIL"),
-        ],
+        on_change=lambda e: safe_call(cambio_pestana, e)(),
         bgcolor=colors["surface"],
+        destinations=[
+            ft.NavigationBarDestination(icon=ft.Icons.HOME_ROUNDED, label="Inicio"),
+            ft.NavigationBarDestination(icon=ft.Icons.ADD_ROAD_ROUNDED, label="Movimientos"),
+            ft.NavigationBarDestination(icon=ft.Icons.MONEY_ROUNDED, label="Presupuesto"),
+            ft.NavigationBarDestination(icon=ft.Icons.ANALYTICS_ROUNDED, label="Métricas"),
+            ft.NavigationBarDestination(icon=ft.Icons.SETTINGS_ACCESSIBILITY_ROUNDED, label="Categorías"),
+        ]
     )
 
-    page.add(
-        ft.Divider(height=10, color=ft.Colors.TRANSPARENT),
-        vista_gastos,
-        vista_presupuestos,
-        vista_dashboard,
-        vista_ia,
-        vista_perfil
-    )
-    vista_gastos.visible = True
-    actualizar_lista_visual()
-    sincronizar_datos(silencioso=True)
-    actualizar_estado_conexion()
+    page.add(ft.Container(content=columna_principal, padding=20, expand=True))
+    ejecutar_vista_dashboard(page)
 
-    cancelar_monitoreo = iniciar_monitoreo_conexion(page, estado_conexion, online, sincronizando, sincronizar_datos)
-
-    scheduler = BackgroundScheduler(timezone=pytz.timezone("America/Costa_Rica"))
-    scheduler.add_job(job_revisar, 'interval', minutes=30, id='recordatorios_job')
-    scheduler.start()
-
-    def on_close(e):
-        scheduler.shutdown(wait=False)
-        cancelar_monitoreo()
-        page.window_destroy()
-    page.on_window_destroy = on_close
-
-    page.update()
-
-# ==================== PUNTO DE ENTRADA ====================
+# ==================== MÉTODO RAÍZ ====================
 def main(page: ft.Page):
-    try:
-        page.title = "MoneyFlow Cloud AI"
-        page.theme_mode = ft.ThemeMode.DARK
-        page.padding = 20
+    page.title = "MoneyFlow Premium Cloud"
+    page.theme_mode = ft.ThemeMode.DARK
+    page.window.width = 400
+    page.window.height = 750
+    
+    import os as _os
+    base_dir = _os.path.dirname(__file__)
+    page.window.icon = _os.path.join(base_dir, "assets", "icono.ico")
+    
+    init_debugger(page)
 
-        if not verificar_y_guia_configuracion(page):
-            page.add(ft.Text("Configuración pendiente", color=AppColors.DARK["error"]))
-            return
-
-        try:
-            if hasattr(page, "client_storage"):
-                saved_theme = page.client_storage.get("theme_mode")
-                if saved_theme == "LIGHT":
-                    page.theme_mode = ft.ThemeMode.LIGHT
-                elif saved_theme == "DARK":
-                    page.theme_mode = ft.ThemeMode.DARK
-                elif saved_theme == "SYSTEM":
-                    page.theme_mode = ft.ThemeMode.SYSTEM
-        except:
-            pass
-
-        page.bgcolor = AppColors.get(page.theme_mode)["bg"]
-
-        if hasattr(page, "user_id") and page.user_id:
-            solicitar_pin(page, lambda: main_app(page))
-        else:
-            login_view(page)
-
-    except Exception as ex:
-        import traceback
-        error_msg = f"Error crítico:\n{str(ex)}\n\nDetalle:\n{traceback.format_exc()}"
-        page.dialog = ft.AlertDialog(
-            title=ft.Text("⚠️ Error"),
-            content=ft.Text(error_msg, selectable=True, size=12),
-            actions=[ft.TextButton("Cerrar", on_click=lambda e: page.window_close())]
-        )
-        page.dialog.open = True
-        page.update()
+    load_dotenv()
+    SUPABASE_URL = os.getenv("SUPABASE_URL", "https://xwvebpdivouldkvfrogh.supabase.co")
+    SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
+    
+    inicializar_supabase(SUPABASE_URL, SUPABASE_KEY)
+    
+    login_view(page)
 
 if __name__ == "__main__":
     ft.run(main)

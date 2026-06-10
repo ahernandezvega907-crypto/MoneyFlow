@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MoneyFlow Guru – Finanzas Inteligentes con IA</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #0A0A0A;
+            color: #fff;
+            line-height: 1.6;
+            scroll-behavior: smooth;
+        }
+        .container {
+            max-width: 1200px;
+            margin: auto;
+            padding: 0 2rem;
+        }
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1.5rem 0;
+            flex-wrap: wrap;
+        }
+        .logo {
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: #00BFA6;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .nav-links a {
+            color: #fff;
+            text-decoration: none;
+            margin-left: 2rem;
+            transition: color 0.3s;
+            font-size: 0.9rem;
+        }
+        .nav-links a:hover {
+            color: #00BFA6;
+        }
+        .hero {
+            text-align: center;
+            padding: 6rem 0 4rem 0;
+        }
+        .hero h1 {
+            font-size: 3.5rem;
+            margin-bottom: 1rem;
+            line-height: 1.1;
+        }
+        .hero h1 span {
+            color: #00BFA6;
+            background: linear-gradient(90deg, #00BFA6, #00E5FF);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .hero p {
+            font-size: 1.3rem;
+            color: #aaa;
+            max-width: 800px;
+            margin: 0 auto 2.5rem auto;
+        }
+        .btn {
+            display: inline-block;
+            background: #00BFA6;
+            color: #0A0A0A;
+            padding: 1rem 2.5rem;
+            border-radius: 50px;
+            text-decoration: none;
+            font-weight: bold;
+            margin: 0.5rem;
+            transition: all 0.3s;
+            box-shadow: 0 4px 15px rgba(0, 191, 166, 0.3);
+        }
+        .btn-outline {
+            background: transparent;
+            border: 2px solid #00BFA6;
+            color: #00BFA6;
+        }
+        .btn-outline:hover {
+            background: rgba(0, 191, 166, 0.1);
+        }
+        .btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 6px 20px rgba(0, 191, 166, 0.4);
+        }
+        .screenshots {
+            text-align: center;
+            padding: 4rem 0;
+            background: radial-gradient(circle at center, #111 0%, #0A0A0A 100%);
+        }
+        .screenshots h2 {
+            font-size: 2.5rem;
+            margin-bottom: 3rem;
+        }
+        .main-screenshot-container {
+            position: relative;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .main-screenshot {
+            width: 100%;
+            border-radius: 20px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.8), 0 0 20px rgba(0, 191, 166, 0.2);
+            border: 1px solid #333;
+            transition: transform 0.5s ease;
+        }
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            padding: 5rem 0;
+        }
+        .feature-card {
+            background: #161616;
+            padding: 2.5rem;
+            border-radius: 24px;
+            border: 1px solid #222;
+            transition: all 0.3s;
+        }
+        .feature-card:hover {
+            border-color: #00BFA6;
+            background: #1c1c1c;
+        }
+        .feature-card img {
+            width: 50px;
+            margin-bottom: 1.5rem;
+        }
+        .testimonials {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 2rem;
+            justify-content: center;
+            margin: 3rem 0;
+        }
+        .testimonial-card {
+            background: #1a1a1a;
+            padding: 1.8rem;
+            border-radius: 24px;
+            max-width: 320px;
+            text-align: center;
+            border: 1px solid #333;
+            transition: transform 0.3s;
+        }
+        .testimonial-card:hover {
+            transform: translateY(-5px);
+            border-color: #00BFA6;
+        }
+        .testimonial-card p {
+            font-style: italic;
+            color: #ccc;
+            margin-bottom: 1rem;
+        }
+        .testimonial-card strong {
+            color: #00BFA6;
+        }
+        .trust-badge {
+            display: inline-block;
+            background: #161616;
+            border-radius: 40px;
+            padding: 0.5rem 1rem;
+            margin: 0.5rem;
+            font-size: 0.8rem;
+            color: #aaa;
+        }
+        .pricing {
+            background: linear-gradient(145deg, #161616, #0f0f0f);
+            padding: 4rem;
+            border-radius: 40px;
+            text-align: center;
+            margin: 4rem 0;
+            border: 1px solid #222;
+        }
+        .price {
+            font-size: 4rem;
+            font-weight: bold;
+            color: #00BFA6;
+            margin: 1rem 0;
+        }
+        footer {
+            text-align: center;
+            padding: 4rem 2rem;
+            color: #555;
+            border-top: 1px solid #222;
+        }
+        footer a { color: #00BFA6; text-decoration: none; }
+        @media (max-width: 768px) {
+            .hero h1 { font-size: 2.5rem; }
+            .nav-links {
+                display: flex;
+                flex-wrap: wrap;
+                justify-content: center;
+                gap: 1rem;
+                margin-top: 1rem;
+                width: 100%;
+            }
+            .nav-links a {
+                margin-left: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">
+                <span style="color: #00BFA6;">M</span>oneyFlow Guru
+            </div>
+            <div class="nav-links">
+                <a href="#features">Funciones</a>
+                <a href="#screenshots">App</a>
+                <a href="#pricing">Premium</a>
+                <a href="#download">Descargar</a>
+            </div>
+        </header>
+
+        <section class="hero">
+            <h1>Tus finanzas guiadas por <span>Inteligencia Artificial</span></h1>
+            <p>Descubre el poder de MoneyFlow Guru: el asistente que no solo cuenta tus gastos, sino que te enseña a ahorrar con sabiduría.</p>
+            <div class="hero-btns">
+                <a href="https://github.com/ahernandezvega907-crypto/MoneyFlow/releases/download/v1.0.0/MoneyFlow.exe" class="btn">Empezar Gratis</a>
+                <a href="#pricing" class="btn btn-outline">Ver Planes Premium</a>
+            </div>
+        </section>
+
+        <section id="screenshots" class="screenshots">
+            <h2>Experiencia Visual Premium</h2>
+            <div class="main-screenshot-container">
+                <img src="img/captura_completa.png" alt="Dashboard MoneyFlow" class="main-screenshot">
+            </div>
+        </section>
+
+        <section id="features" class="features">
+            <div class="feature-card">
+                <img src="https://cdn-icons-png.flaticon.com/512/4712/4712027.png" alt="IA">
+                <h3>Money-Guru IA</h3>
+                <p>Tu asesor personal disponible 24/7. Pregunta sobre tus hábitos y recibe consejos basados en tus datos reales.</p>
+            </div>
+            <div class="feature-card">
+                <img src="https://cdn-icons-png.flaticon.com/512/1040/1040253.png" alt="gráfico">
+                <h3>Gráficos de Tendencia</h3>
+                <p>Visualiza hacia dónde va tu dinero con gráficos de pastel y barras automáticos.</p>
+            </div>
+            <div class="feature-card">
+                <img src="https://cdn-icons-png.flaticon.com/512/3031/3031502.png" alt="exportar">
+                <h3>Informes Profesionales</h3>
+                <p>Exporta toda tu información en PDF, Excel o CSV con un solo clic.</p>
+            </div>
+        </section>
+
+        <div style="text-align: center; margin-top: 2rem;">
+            <h2 style="font-size: 2rem;">Lo que opinan nuestros usuarios</h2>
+            <div class="testimonials">
+                <div class="testimonial-card">
+                    <p>“MoneyFlow me ha ayudado a reducir mis gastos innecesarios en un 30% en solo dos meses. El Guru IA es increíble.”</p>
+                    <strong>– Ana F., San José</strong>
+                </div>
+                <div class="testimonial-card">
+                    <p>“La exportación a PDF y Excel es perfecta para mi contabilidad personal. Vale cada colón.”</p>
+                    <strong>– Carlos M., Alajuela</strong>
+                </div>
+                <div class="testimonial-card">
+                    <p>“Por fin una app de finanzas costarricense con diseño moderno y asistente inteligente. ¡Recomendadísima!”</p>
+                    <strong>– Laura V., Heredia</strong>
+                </div>
+            </div>
+        </div>
+
+        <section id="pricing" class="pricing">
+            <h2 style="font-size: 2rem;">Lleva tus ahorros al siguiente nivel</h2>
+            <div class="price">$14.99 <span style="font-size: 1rem; color: #555;">USD</span></div>
+            <p style="font-size: 1.2rem; margin-bottom: 2rem;"><strong>Pago único.</strong> Acceso de por vida a todas las funciones actuales y futuras.</p>
+            <ul style="list-style: none; margin-bottom: 2rem; color: #aaa;">
+                <li>✓ IA Guru Ilimitada</li>
+                <li>✓ Exportación a PDF y Excel</li>
+                <li>✓ Sincronización Multi-dispositivo</li>
+                <li>✓ Sin anuncios, para siempre</li>
+            </ul>
+            <div style="margin-bottom: 2rem;">
+                <span class="trust-badge">🔒 Pago Seguro con Stripe</span>
+                <span class="trust-badge">🛡️ Garantía de 30 días</span>
+                <span class="trust-badge">⭐ +500 usuarios activos</span>
+            </div>
+            <a href="https://vega907.gumroad.com/l/moneyflow-premium" class="btn" target="_blank">Obtener Premium Ahora</a>
+        </section>
+
+        <section id="download" style="text-align: center; padding: 6rem 0;">
+            <h2 style="font-size: 2.5rem; margin-bottom: 1rem;">¿Listo para el cambio?</h2>
+            <p style="margin-bottom: 2.5rem; color: #888;">Disponible ahora para Windows 10, 11 y Android.</p>
+            <a href="https://github.com/ahernandezvega907-crypto/MoneyFlow/releases/download/v1.0.0/MoneyFlow.exe" class="btn">Descargar para Windows</a>
+            <p style="margin-top: 1rem; font-size: 0.8rem; color: #555;">Versión gratuita (sin límite de tiempo) – Actualiza a Premium para todas las funciones</p>
+        </section>
+
+        <footer>
+            <p>© 2026 Armando Hernández Vega. Todos los derechos reservados.</p>
+            <p>Software protegido bajo licencia. 
+               <a href="https://github.com/ahernandezvega907-crypto/MoneyFlow/blob/main/LICENSE" target="_blank">Ver términos de uso</a>.
+            </p>
+            <p style="margin-top: 0.5rem;">
+                📧 <a href="mailto:ahernandezvega907@gmail.com">ahernandezvega907@gmail.com</a> | 🇨🇷 Hecho en Costa Rica
+            </p>
+        </footer>
+    </div>
+</body>
+</html>

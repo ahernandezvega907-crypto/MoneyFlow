@@ -1,0 +1,64 @@
+2026-06-07 00:46:04 | ERROR | Excepción en safe_call:
+Traceback (most recent call last):
+  File "C:\Users\arman\Desktop\MoneyFlow.1\src\debug_helper.py", line 111, in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\arman\Desktop\MoneyFlow.1\src\main.py", line 163, in verificar
+    on_correct_pin()
+  File "C:\Users\arman\Desktop\MoneyFlow.1\src\main.py", line 217, in <lambda>
+    solicitar_pin(page, lambda: mostrar_interfaz_principal(page))
+                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\arman\Desktop\MoneyFlow.1\src\main.py", line 890, in mostrar_interfaz_principal
+    ejecutar_vista_dashboard(page)
+  File "C:\Users\arman\Desktop\MoneyFlow.1\src\main.py", line 258, in ejecutar_vista_dashboard
+    grafico_container = ft.Container(height=220, alignment=ft.alignment.CENTER)
+                                                           ^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'flet.controls.alignment' has no attribute 'CENTER'
+2026-06-07 11:12:48 | ERROR | Excepción en safe_call:
+Traceback (most recent call last):
+  File "C:\Users\arman\Desktop\MoneyFlow.1\src\debug_helper.py", line 111, in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\arman\Desktop\MoneyFlow.1\src\main.py", line 157, in verificar
+    on_correct_pin()
+  File "C:\Users\arman\Desktop\MoneyFlow.1\src\main.py", line 211, in <lambda>
+    solicitar_pin(page, lambda: mostrar_interfaz_principal(page))
+                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\arman\Desktop\MoneyFlow.1\src\main.py", line 760, in mostrar_interfaz_principal
+    ft.NavigationDestination(icon=ft.Icons.SPACE_DASHBOARD_ROUNDED, label="Inicio"),
+    ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\arman\Desktop\MoneyFlow.1\venv\Lib\site-packages\flet\__init__.py", line 1220, in __getattr__
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+AttributeError: module 'flet' has no attribute 'NavigationDestination'. Did you mean: 'NavigationBarDestination'?
+2026-06-07 11:13:08 | ERROR | Excepción en safe_call:
+Traceback (most recent call last):
+  File "C:\Users\arman\Desktop\MoneyFlow.1\src\debug_helper.py", line 111, in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\arman\Desktop\MoneyFlow.1\src\main.py", line 157, in verificar
+    on_correct_pin()
+  File "C:\Users\arman\Desktop\MoneyFlow.1\src\main.py", line 211, in <lambda>
+    solicitar_pin(page, lambda: mostrar_interfaz_principal(page))
+                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\arman\Desktop\MoneyFlow.1\src\main.py", line 760, in mostrar_interfaz_principal
+    ft.NavigationDestination(icon=ft.Icons.SPACE_DASHBOARD_ROUNDED, label="Inicio"),
+    ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\arman\Desktop\MoneyFlow.1\venv\Lib\site-packages\flet\__init__.py", line 1220, in __getattr__
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+AttributeError: module 'flet' has no attribute 'NavigationDestination'. Did you mean: 'NavigationBarDestination'?
+2026-06-07 14:30:31 | ERROR | Excepción en safe_call:
+Traceback (most recent call last):
+  File "C:\Users\arman\Desktop\MoneyFlow.1\src\debug_helper.py", line 111, in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\arman\Desktop\MoneyFlow.1\src\main.py", line 168, in verificar
+    on_correct_pin()
+  File "C:\Users\arman\Desktop\MoneyFlow.1\src\main.py", line 220, in <lambda>
+    solicitar_pin(page, lambda: mostrar_interfaz_principal(page))
+                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\arman\Desktop\MoneyFlow.1\src\main.py", line 1226, in mostrar_interfaz_principal
+    ft.NavigationBarDestination(icon=ft.Icons.BUDGET_ROUNDED, label="Presupuesto"),
+                                     ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\arman\Desktop\MoneyFlow.1\venv\Lib\site-packages\flet\controls\material\icons.py", line 72, in __getattr__
+    raise AttributeError(name) from None
+AttributeError: BUDGET_ROUNDED
